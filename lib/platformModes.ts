@@ -137,7 +137,16 @@ function analyzeLinkedIn(text: string): PlatformResult {
   const hookEnd = nl2 !== -1 ? nl2 : nl1 !== -1 ? nl1 : text.length;
   const hookText = text.slice(0, hookEnd);
   const hasLiAttribution = hasProperNoun(firstSentence(text)) && LI_ATTR_RE.test(hookText);
-  if (!LI_CRED_RE.test(hookText) && !hasLiAttribution) {
+
+  // Company/brand as subject: "Apple is paying…", "Google has acquired…"
+  const LI_NON_NAME =
+    /^(?:The|A|An|This|That|These|Those|It|They|We|You|He|She|I|Nobody|Nothing|Something|Everything|Everyone|Someone|Anyone|Each|Every|Recently|Today|Yesterday|Last|Next|My|Your|Our|Their|His|Her|Its|When|Where|What|How|Why|If|But|And|Or|So|Yet|Because|Although|While|After|Before|During|Since|Unless|Until|Whether|Meanwhile|Finally|Then|Now|Here|There|Not|Just|Still|Also|Even|Only|Both|Either|Neither|Many|Most|Some|Few|All|Any|No)\b/;
+  const LI_COMPANY_SUBJECT_RE =
+    /^[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{1,})?\s+(?:is|are|was|were|has|have|had|will|just|recently|now)\b/;
+  const hasSubjectAction =
+    LI_COMPANY_SUBJECT_RE.test(text) && !LI_NON_NAME.test(text);
+
+  if (!LI_CRED_RE.test(hookText) && !hasLiAttribution && !hasSubjectAction) {
     platformHookIssues.push("LinkedIn: hook lacks role, dollar figure, or specific number");
   }
 

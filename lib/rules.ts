@@ -285,7 +285,7 @@ const SHORT_REBUTTAL_RE =
 
 // Confrontation verbs: "called out", "exposed", "challenged", "blasted" etc. — implied tension through conflict
 const CONFRONTATION_RE =
-  /\b(?:call(?:s|ed|ing)?\s+out|push(?:es|ed|ing)?\s+back|challeng(?:es|ed|ing)|expos(?:es|ed|ing)|accus(?:es|ed|ing)|blast(?:s|ed|ing)|slam(?:s|med|ming)|tak(?:es|en|ing)?\s+aim|debunk(?:s|ed|ing)|defi(?:es|ed|ant|ance)|fought?\s+back|fight(?:s|ing)?\s+back|warn(?:s|ed|ing)\s+(?:about|against|of)|condemn(?:s|ed|ing)|reject(?:s|ed|ing))\b/i;
+  /\b(?:call(?:s|ed|ing)?\s+out|push(?:es|ed|ing)?\s+back|challeng(?:es|ed|ing)|expos(?:es|ed|ing)|accus(?:es|ed|ing)|blast(?:s|ed|ing)|slam(?:s|med|ming)|tak(?:es|en|ing)?\s+aim|debunk(?:s|ed|ing)|defi(?:es|ed|ant|ance)|fought?\s+back|fight(?:s|ing)?\s+back|warn(?:s|ed|ing)\s+(?:about|against|of)|condemn(?:s|ed|ing)|reject(?:s|ed|ing)|to\s+prove)\b/i;
 
 // Credibility signals: follower counts, titles, rankings, awards, credentials …
 const CREDIBILITY_RE =
@@ -320,8 +320,16 @@ function runHookChecks(text: string): {
   ) {
     flag(0, twoLinesEnd, "Weak hook: no contradiction or tension signal");
   }
+  // "Apple is paying…", "Google has acquired…" — named entity as subject IS the credential
+  const NON_NAME_START =
+    /^(?:The|A|An|This|That|These|Those|It|They|We|You|He|She|I|Nobody|Nothing|Something|Everything|Everyone|Someone|Anyone|Each|Every|Recently|Today|Yesterday|Last|Next|My|Your|Our|Their|His|Her|Its|When|Where|What|How|Why|If|But|And|Or|So|Yet|Because|Although|While|After|Before|During|Since|Unless|Until|Whether|Meanwhile|Finally|Then|Now|Here|There|Not|Just|Still|Also|Even|Only|Both|Either|Neither|Many|Most|Some|Few|All|Any|No)\b/;
+  const COMPANY_SUBJECT_RE =
+    /^[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{1,})?\s+(?:is|are|was|were|has|have|had|will|just|recently|now)\b/;
+  const hasSubjectAction =
+    COMPANY_SUBJECT_RE.test(line1) && !NON_NAME_START.test(line1);
+
   const hasAttribution = hasProperNoun(line1) && ATTRIBUTION_RE.test(firstTwo);
-  if (!CREDIBILITY_RE.test(firstTwo) && !hasAttribution) {
+  if (!CREDIBILITY_RE.test(firstTwo) && !hasAttribution && !hasSubjectAction) {
     flag(0, twoLinesEnd, "Weak hook: no credibility signal");
   }
 
