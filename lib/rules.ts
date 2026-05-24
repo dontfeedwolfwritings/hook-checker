@@ -291,6 +291,11 @@ const CONFRONTATION_RE =
 const CREDIBILITY_RE =
   /\b(?:\d[\d,.]*\s*[kKmM]\+?\s*(?:followers?|subscribers?|connections?|views?)|#\s*1\b|ranked\s+(?:#\s*)?\d|award[-\s]winning|bestsell|certified|licensed|Ph\.?D|M\.?B\.?A|Dr\.|professor|author\s+of|founded|founder|ceo|cto|coo|vp\s+of|head\s+of|director\s+of|record[- ](?:breaking|setting))\b/i;
 
+// Attribution pattern: "[Named person] says/claims/argues/warns X"
+// The named public figure IS the credibility — no title or dollar figure needed.
+const ATTRIBUTION_RE =
+  /\b(?:says?|said|claims?|claimed|argues?|argued|warns?|warned|reveals?|revealed|admits?|admitted|announces?|announced|confirms?|confirmed|told|tells?|called\s+out|calls?\s+out)\b/i;
+
 function runHookChecks(text: string): {
   hookMatches: Match[];
   hookIssues: string[];
@@ -315,7 +320,8 @@ function runHookChecks(text: string): {
   ) {
     flag(0, twoLinesEnd, "Weak hook: no contradiction or tension signal");
   }
-  if (!CREDIBILITY_RE.test(firstTwo)) {
+  const hasAttribution = hasProperNoun(line1) && ATTRIBUTION_RE.test(firstTwo);
+  if (!CREDIBILITY_RE.test(firstTwo) && !hasAttribution) {
     flag(0, twoLinesEnd, "Weak hook: no credibility signal");
   }
 

@@ -105,6 +105,10 @@ function firstSentence(text: string): string {
 const LI_CRED_RE =
   /\b(?:\$[\d,.]+[kKmMbB]?|\d[\d,.]*\s*[kKmMbB](?:\+)?\s*(?:ARR|MRR|revenue|sales|clients?|users?|followers?|subscribers?|students?)?|ceo|cto|coo|founder|co[- ]founder|director|vp\s+of|head\s+of|author\s+of|ranked|#\s*\d|award[-\s]winning|bestsell|Ph\.?D|M\.?B\.?A|Dr\.)\b/i;
 
+// Named public figure + attribution verb = credibility (e.g. "Seth Rogen says…")
+const LI_ATTR_RE =
+  /\b(?:says?|said|claims?|claimed|argues?|argued|warns?|warned|reveals?|revealed|admits?|admitted|announces?|announced|confirms?|confirmed|told|tells?|called\s+out|calls?\s+out)\b/i;
+
 function analyzeLinkedIn(text: string): PlatformResult {
   const matches:            Match[]   = [];
   const platformHookIssues: string[]  = [];
@@ -131,7 +135,9 @@ function analyzeLinkedIn(text: string): PlatformResult {
   const nl1 = text.indexOf("\n");
   const nl2 = nl1 === -1 ? -1 : text.indexOf("\n", nl1 + 1);
   const hookEnd = nl2 !== -1 ? nl2 : nl1 !== -1 ? nl1 : text.length;
-  if (!LI_CRED_RE.test(text.slice(0, hookEnd))) {
+  const hookText = text.slice(0, hookEnd);
+  const hasLiAttribution = hasProperNoun(firstSentence(text)) && LI_ATTR_RE.test(hookText);
+  if (!LI_CRED_RE.test(hookText) && !hasLiAttribution) {
     platformHookIssues.push("LinkedIn: hook lacks role, dollar figure, or specific number");
   }
 
