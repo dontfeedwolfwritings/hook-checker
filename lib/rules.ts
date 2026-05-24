@@ -270,6 +270,10 @@ const CONTRADICTION_RE =
 const SHORT_REBUTTAL_RE =
   /(?:^|[.!?]\s{0,3}|\n)(?:Wrong|False|Not true|Not quite|Nope|Actually|Incorrect|No\.|Bullshit)\b/im;
 
+// Confrontation verbs: "called out", "exposed", "challenged", "blasted" etc. — implied tension through conflict
+const CONFRONTATION_RE =
+  /\b(?:call(?:s|ed|ing)?\s+out|push(?:es|ed|ing)?\s+back|challeng(?:es|ed|ing)|expos(?:es|ed|ing)|accus(?:es|ed|ing)|blast(?:s|ed|ing)|slam(?:s|med|ming)|tak(?:es|en|ing)?\s+aim|debunk(?:s|ed|ing)|defi(?:es|ed|ant|ance)|fought?\s+back|fight(?:s|ing)?\s+back|warn(?:s|ed|ing)\s+(?:about|against|of)|condemn(?:s|ed|ing)|reject(?:s|ed|ing))\b/i;
+
 // Credibility signals: follower counts, titles, rankings, awards, credentials …
 const CREDIBILITY_RE =
   /\b(?:\d[\d,.]*\s*[kKmM]\+?\s*(?:followers?|subscribers?|connections?|views?)|#\s*1\b|ranked\s+(?:#\s*)?\d|award[-\s]winning|bestsell|certified|licensed|Ph\.?D|M\.?B\.?A|Dr\.|professor|author\s+of|founded|founder|ceo|cto|coo|vp\s+of|head\s+of|director\s+of|record[- ](?:breaking|setting))\b/i;
@@ -291,7 +295,11 @@ function runHookChecks(text: string): {
   if (!hasProperNoun(line1)) {
     flag(0, line1End, "Weak hook: no proper noun in first line");
   }
-  if (!CONTRADICTION_RE.test(firstTwo) && !SHORT_REBUTTAL_RE.test(firstTwo)) {
+  if (
+    !CONTRADICTION_RE.test(firstTwo) &&
+    !SHORT_REBUTTAL_RE.test(firstTwo) &&
+    !CONFRONTATION_RE.test(firstTwo)
+  ) {
     flag(0, twoLinesEnd, "Weak hook: no contradiction or tension signal");
   }
   if (!CREDIBILITY_RE.test(firstTwo)) {
