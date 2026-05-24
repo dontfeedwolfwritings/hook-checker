@@ -302,6 +302,106 @@ function ScoreCard({
   );
 }
 
+// ─── score breakdown ──────────────────────────────────────────────────────────
+
+function ScoreBreakdown({
+  hardCount,
+  slopCount,
+  hookIssues,
+  platIssues,
+  deepResult,
+}: {
+  hardCount:  number;
+  slopCount:  number;
+  hookIssues: string[];
+  platIssues: string[];
+  deepResult: DeepCheckResult | null;
+}) {
+  const hookCount = hookIssues.length + platIssues.length;
+  const items: string[] = [];
+
+  if (hardCount > 0)
+    items.push(`${hardCount} hard violation${hardCount > 1 ? "s" : ""} (−${hardCount * 15})`);
+  if (slopCount > 0)
+    items.push(`${slopCount} slop trope${slopCount > 1 ? "s" : ""} (−${slopCount * 8})`);
+  if (hookCount > 0)
+    items.push(`${hookCount} hook issue${hookCount > 1 ? "s" : ""} (−${hookCount * 10})`);
+  if (deepResult && deepResult.issues.length > 0) {
+    const penalty = deepResult.issues.reduce(
+      (s, i) => s + (i.severity === "high" ? 12 : i.severity === "medium" ? 6 : 3),
+      0,
+    );
+    items.push(`${deepResult.issues.length} semantic issue${deepResult.issues.length > 1 ? "s" : ""} (−${penalty})`);
+  }
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="pb-4 pt-0">
+      <ul className="space-y-1">
+        {items.map((item, i) => (
+          <li key={i} className="flex items-center gap-1.5 font-mono text-[10px] text-[#363636]">
+            <span className="text-red-900/70">↓</span>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── flagged phrases ──────────────────────────────────────────────────────────
+
+const VIOLATION_FIX: Record<string, string> = {
+  "Em dash":          "Replace — with a period or colon.",
+  "Spot on":          "Replace with 'exactly right' or just cut it.",
+  "it's not X it's Y": "State your point directly without the construction.",
+};
+
+const SLOP_FIX_DEFAULT = "Replace with something specific to your actual point.";
+const HARD_FIX_DEFAULT = "Remove — this phrase signals AI-written copy.";
+
+function FlaggedPhrases({ matches }: { matches: Match[] }) {
+  const inline = matches.filter((m) => m.type === "hard" || m.type === "slop");
+  if (inline.length === 0) return null;
+
+  // Deduplicate by label
+  const seen = new Set<string>();
+  const unique: Match[] = [];
+  for (const m of inline) {
+    if (!seen.has(m.label)) { seen.add(m.label); unique.push(m); }
+  }
+
+  return (
+    <div className="border-b border-[#191919] py-4">
+      <p className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[#4a4a4a]">
+        Flagged phrases
+      </p>
+      <ul className="space-y-3">
+        {unique.map((m) => (
+          <li key={m.label}>
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+                  m.type === "hard"
+                    ? "bg-red-950/40 text-red-600"
+                    : "bg-amber-950/30 text-amber-600"
+                }`}
+              >
+                {m.type === "hard" ? "violation" : "slop"}
+              </span>
+              <span className="font-mono text-[11px] text-[#555]">{m.label}</span>
+            </div>
+            <p className="mt-0.5 font-mono text-[10px] leading-snug text-[#3a3a3a]">
+              → {VIOLATION_FIX[m.label] ?? (m.type === "hard" ? HARD_FIX_DEFAULT : SLOP_FIX_DEFAULT)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ─── stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
@@ -336,6 +436,16 @@ function StatCard({
 
 // ─── hook checklist ───────────────────────────────────────────────────────────
 
+const HOOK_HINTS: Record<string, string> = {
+  "Proper noun in first sentence":  "Name a specific person, company, or brand in your opening line.",
+  "Contradiction or tension":       "State something unexpected — \"X did Y, despite what you'd expect.\"",
+  "Role, number, or dollar figure": "Add a credential: job title, specific number, or dollar amount.",
+  "Number, name, or curiosity gap": "Open with a number, a name, 'How / Why / What', or end with '?'",
+  "Credibility signal present":     "Add proof: a metric, a named role, or a measurable result.",
+  "First line as standalone hook":  "Lead with the surprising claim, not 'Check out my video…'",
+  "Named person or brand present":  "Drop a specific name — person, brand, or character.",
+};
+
 function HookChecklist({ items }: { items: CheckItem[] }) {
   return (
     <div className="border-b border-[#191919] py-5">
@@ -344,7 +454,7 @@ function HookChecklist({ items }: { items: CheckItem[] }) {
       </p>
       <ul className="space-y-3">
         {items.map(({ label, passed }) => (
-          <li key={label} className="flex items-start gap-2.5 text-[13px]">
+          <li key={label} className="flex items-start gap-2.5">
             <span
               className={`mt-px font-mono text-[13px] font-bold leading-tight ${
                 passed === null
@@ -356,17 +466,24 @@ function HookChecklist({ items }: { items: CheckItem[] }) {
             >
               {passed === null ? "–" : passed ? "✓" : "✗"}
             </span>
-            <span
-              className={
-                passed === null
-                  ? "text-[#2e2e2e]"
-                  : passed
-                  ? "text-[#999]"
-                  : "text-[#555]"
-              }
-            >
-              {label}
-            </span>
+            <div>
+              <span
+                className={`text-[13px] ${
+                  passed === null
+                    ? "text-[#2e2e2e]"
+                    : passed
+                    ? "text-[#999]"
+                    : "text-[#555]"
+                }`}
+              >
+                {label}
+              </span>
+              {passed === false && HOOK_HINTS[label] && (
+                <p className="mt-0.5 font-mono text-[10px] leading-snug text-[#3a3a3a]">
+                  → {HOOK_HINTS[label]}
+                </p>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -968,6 +1085,13 @@ export default function PostEditor() {
             empty={!text.trim()}
             onShare={handleShareScore}
           />
+          <ScoreBreakdown
+            hardCount={analysis.hardCount}
+            slopCount={analysis.slopCount}
+            hookIssues={analysis.hookIssues}
+            platIssues={analysis.platformHookIssues}
+            deepResult={deepResult}
+          />
           <StatCard
             count={analysis.hardCount}
             label="Hard violations"
@@ -980,6 +1104,7 @@ export default function PostEditor() {
             desc="Villain labels · AI phrases · clichés"
             activeColor="text-amber-500"
           />
+          <FlaggedPhrases matches={analysis.matches} />
           <HookChecklist
             items={getPlatformChecklist(
               analysis.hookIssues,
