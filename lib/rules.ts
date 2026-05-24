@@ -245,7 +245,20 @@ function getLineInfo(text: string) {
     twoLinesEnd = nl2 === -1 ? text.length : nl2;
   }
 
-  return { line1, line1End, twoLinesEnd };
+  // Tension region: 4 newline segments from the start, capped at 400 chars.
+  // This captures short rebuttal lines that follow a blank paragraph separator
+  // e.g. "Claim.\n\nWrong target." — "Wrong target." is on line 3.
+  let tensionEnd = twoLinesEnd;
+  let pos = twoLinesEnd;
+  for (let i = 0; i < 2 && pos < text.length; i++) {
+    const next = text.indexOf("\n", pos + 1);
+    if (next === -1) { tensionEnd = text.length; break; }
+    tensionEnd = next;
+    pos = next;
+  }
+  const tensionRegion = text.slice(0, Math.min(tensionEnd, 400));
+
+  return { line1, line1End, twoLinesEnd, tensionRegion };
 }
 
 // A capitalised word that isn't at a sentence-start position is a proxy for a proper noun.
@@ -282,7 +295,7 @@ function runHookChecks(text: string): {
   hookMatches: Match[];
   hookIssues: string[];
 } {
-  const { line1, line1End, twoLinesEnd } = getLineInfo(text);
+  const { line1, line1End, twoLinesEnd, tensionRegion } = getLineInfo(text);
   const firstTwo = text.slice(0, twoLinesEnd);
   const hookMatches: Match[] = [];
   const hookIssues: string[] = [];
@@ -296,9 +309,9 @@ function runHookChecks(text: string): {
     flag(0, line1End, "Weak hook: no proper noun in first line");
   }
   if (
-    !CONTRADICTION_RE.test(firstTwo) &&
-    !SHORT_REBUTTAL_RE.test(firstTwo) &&
-    !CONFRONTATION_RE.test(firstTwo)
+    !CONTRADICTION_RE.test(tensionRegion) &&
+    !SHORT_REBUTTAL_RE.test(tensionRegion) &&
+    !CONFRONTATION_RE.test(tensionRegion)
   ) {
     flag(0, twoLinesEnd, "Weak hook: no contradiction or tension signal");
   }
