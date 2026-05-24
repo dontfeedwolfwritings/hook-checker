@@ -14,13 +14,32 @@ import {
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
-interface DeepIssue {
-  category:   string;
-  issue:      string;
-  suggestion: string;
+interface Draft {
+  id:       string;
+  text:     string;
+  platform: Platform;
+  savedAt:  number;
 }
 
-// ─── highlight styles ─────────────────────────────────────────────────────────
+interface SemanticIssue {
+  type:     string;
+  severity: "high" | "medium" | "low";
+  note:     string;
+  fix:      string;
+}
+
+interface DeepCheckResult {
+  issues:  SemanticIssue[];
+  verdict: "clean" | "minor" | "needs work";
+  topFix:  string | null;
+}
+
+type DiffOp = { type: "equal" | "add" | "del"; text: string };
+
+// ─── constants ────────────────────────────────────────────────────────────────
+
+const DRAFT_KEY  = "hc_drafts";
+const MAX_DRAFTS = 5;
 
 const MATCH_STYLE: Record<Match["type"], string> = {
   hard: "underline decoration-red-500   decoration-2 bg-red-950/40",
@@ -28,14 +47,99 @@ const MATCH_STYLE: Record<Match["type"], string> = {
   hook: "underline decoration-blue-500/60 decoration-2",
 };
 
-// ─── char-counter color map ───────────────────────────────────────────────────
-
 const CHAR_COLOR_CLASS: Record<CharColor, string> = {
   neutral: "text-[#252525]",
   green:   "text-emerald-600",
   amber:   "text-amber-500",
   red:     "text-red-500",
 };
+
+// ─── draft helpers ────────────────────────────────────────────────────────────
+
+function loadDrafts(): Draft[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as Draft[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistDrafts(drafts: Draft[]): void {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
+  } catch { /* storage full — silent */ }
+}
+
+// ─── diff helpers ─────────────────────────────────────────────────────────────
+
+function wordDiff(before: string, after: string): DiffOp[] {
+  const a = before.match(/\S+|\s+/g) ?? [];
+  const b = after.match(/\S+|\s+/g) ?? [];
+  const m = a.length;
+  const n = b.length;
+
+  const dp = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const ops: DiffOp[] = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
+      ops.unshift({ type: "equal", text: a[i - 1] });
+      i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      ops.unshift({ type: "add", text: b[j - 1] });
+      j--;
+    } else {
+      ops.unshift({ type: "del", text: a[i - 1] });
+      i--;
+    }
+  }
+
+  return ops;
+}
+
+// ─── score helpers ────────────────────────────────────────────────────────────
+
+function computeScore(
+  hardCount:  number,
+  slopCount:  number,
+  hookIssues: string[],
+  platIssues: string[],
+  deep:       DeepCheckResult | null,
+): number {
+  let s = 100;
+  s -= hardCount * 15;
+  s -= slopCount * 8;
+  s -= (hookIssues.length + platIssues.length) * 10;
+  if (deep) {
+    for (const issue of deep.issues) {
+      s -= issue.severity === "high" ? 12 : issue.severity === "medium" ? 6 : 3;
+    }
+  }
+  return Math.max(0, s);
+}
+
+function scoreLabel(n: number): string {
+  if (n >= 90) return "Clean";
+  if (n >= 75) return "Strong";
+  if (n >= 60) return "Needs work";
+  return "Major issues";
+}
+
+function scoreColor(n: number): string {
+  if (n >= 75) return "text-emerald-500";
+  if (n >= 60) return "text-amber-500";
+  return "text-red-500";
+}
 
 // ─── segment builder ──────────────────────────────────────────────────────────
 
@@ -112,7 +216,6 @@ function HighlightedPreview({
 
   return (
     <>
-      {/* Platform label bar */}
       <div className="flex items-center justify-between border-b border-[#181818] px-5 py-2">
         <span className="font-mono text-[10px] text-[#282828]">Preview</span>
         <span className="font-mono text-[10px] text-[#2a2a2a]">
@@ -135,6 +238,67 @@ function HighlightedPreview({
         </div>
       )}
     </>
+  );
+}
+
+// ─── score card ───────────────────────────────────────────────────────────────
+
+function ScoreCard({
+  score,
+  empty,
+  onShare,
+}: {
+  score:   number;
+  empty:   boolean;
+  onShare: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  function handleShare() {
+    onShare();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="border-b border-[#191919] py-5">
+      <div className="flex items-end justify-between">
+        <div className="flex items-baseline gap-2">
+          <span
+            className={`font-mono text-[64px] font-bold leading-none tabular-nums transition-colors ${
+              empty ? "text-[#242424]" : scoreColor(score)
+            }`}
+          >
+            {empty ? "—" : score}
+          </span>
+          {!empty && (
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#3a3a3a]">
+              / 100
+            </span>
+          )}
+        </div>
+
+        <button
+          onClick={handleShare}
+          disabled={empty}
+          className={`mb-1 rounded border px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest transition-colors ${
+            empty
+              ? "cursor-not-allowed border-[#191919] text-[#2a2a2a]"
+              : copied
+              ? "border-emerald-800 text-emerald-600"
+              : "border-[#1e1e1e] text-[#383838] hover:border-[#2e2e2e] hover:text-[#666]"
+          }`}
+        >
+          {copied ? "Copied!" : "Share score"}
+        </button>
+      </div>
+
+      {!empty && (
+        <p className={`mt-1 font-mono text-[11px] ${scoreColor(score)} opacity-60`}>
+          {scoreLabel(score)}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -231,6 +395,134 @@ function PlatformWarnings({ warnings }: { warnings: string[] }) {
   );
 }
 
+// ─── save draft bar ───────────────────────────────────────────────────────────
+
+function SaveDraftBar({
+  drafts,
+  onSave,
+  onLoad,
+  onDelete,
+}: {
+  drafts:   Draft[];
+  onSave:   () => void;
+  onLoad:   (d: Draft) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="flex items-center gap-3 border-b border-[#181818] px-5 py-2.5">
+      <button
+        onClick={onSave}
+        className="font-mono text-[11px] text-[#383838] transition-colors hover:text-[#999]"
+      >
+        Save draft
+      </button>
+
+      {drafts.length > 0 && (
+        <>
+          <span className="font-mono text-[#1e1e1e]">·</span>
+          <div ref={ref} className="relative">
+            <button
+              onClick={() => setOpen((o) => !o)}
+              className="font-mono text-[11px] text-[#2e2e2e] transition-colors hover:text-[#666]"
+            >
+              {drafts.length} saved {open ? "▾" : "▸"}
+            </button>
+
+            {open && (
+              <div className="absolute left-0 top-full z-30 mt-1 w-72 rounded border border-[#222] bg-[#111] shadow-2xl">
+                {drafts.map((d) => (
+                  <div
+                    key={d.id}
+                    className="group flex items-start gap-2 border-b border-[#181818] px-3 py-2.5 last:border-0"
+                  >
+                    <button
+                      onClick={() => { onLoad(d); setOpen(false); }}
+                      className="flex-1 text-left"
+                    >
+                      <div className="font-mono text-[10px] text-[#444]">
+                        {new Date(d.savedAt).toLocaleDateString()}{" "}
+                        {new Date(d.savedAt).toLocaleTimeString([], {
+                          hour:   "2-digit",
+                          minute: "2-digit",
+                        })}
+                        {" · "}
+                        {PLATFORM_CONFIG[d.platform].tabLabel}
+                      </div>
+                      <div
+                        className="mt-0.5 text-[12px] leading-snug text-[#777]"
+                        style={{ fontFamily: "Georgia, serif" }}
+                      >
+                        {d.text.slice(0, 50)}
+                        {d.text.length > 50 ? "…" : ""}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => onDelete(d.id)}
+                      className="mt-0.5 font-mono text-[11px] text-[#2a2a2a] opacity-0 transition-opacity hover:text-red-700 group-hover:opacity-100"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── diff view ────────────────────────────────────────────────────────────────
+
+function DiffView({ before, after }: { before: string; after: string }) {
+  const ops = useMemo(() => wordDiff(before, after), [before, after]);
+  const hasChanges = ops.some((op) => op.type !== "equal");
+
+  if (!hasChanges) {
+    return (
+      <div className="px-5 py-4 font-mono text-[12px] italic text-[#2e2e2e]">
+        No changes from snapshot.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="px-5 py-5 text-[14px] leading-relaxed"
+      style={{ fontFamily: "Georgia, 'Times New Roman', serif", whiteSpace: "pre-wrap" }}
+    >
+      {ops.map((op, i) => {
+        if (op.type === "equal")
+          return <span key={i} className="text-[#555]">{op.text}</span>;
+        if (op.type === "add")
+          return (
+            <span key={i} className="rounded bg-emerald-950/60 text-emerald-400">
+              {op.text}
+            </span>
+          );
+        return (
+          <span key={i} className="rounded bg-red-950/60 text-red-500 line-through opacity-75">
+            {op.text}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── platform selector ────────────────────────────────────────────────────────
 
 function PlatformSelector({
@@ -275,7 +567,6 @@ function PlatformSelector({
         </span>
       </div>
 
-      {/* Ideal-range hint when in red zone */}
       {colorKey === "red" && (
         <p className="mt-1.5 font-mono text-[10px] text-red-800">
           Over soft limit ({PLATFORM_CONFIG[value].limits.softMax.toLocaleString()} chars)
@@ -313,7 +604,6 @@ function HookExamples() {
 
   return (
     <div className="border-b border-[#191919]">
-      {/* Toggle button */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -331,11 +621,6 @@ function HookExamples() {
         </span>
       </button>
 
-      {/*
-        CSS grid-row trick for smooth height animation.
-        The inner div needs min-h-0 so the grid item can actually collapse to 0
-        when grid-template-rows is 0fr.
-      */}
       <div
         className={`grid transition-all duration-300 ease-in-out ${
           open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
@@ -343,15 +628,11 @@ function HookExamples() {
       >
         <div className="min-h-0 overflow-hidden">
           <div className="space-y-6 pb-6">
-
             {HOOK_EXAMPLES.map((ex, i) => (
               <div key={i}>
-                {/* Principle */}
                 <p className="mb-3 font-mono text-[9px] uppercase tracking-[0.18em] text-[#2e2e2e]">
                   {ex.principle}
                 </p>
-
-                {/* Weak */}
                 <div className="mb-2">
                   <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-red-900/80">
                     Weak
@@ -360,8 +641,6 @@ function HookExamples() {
                     &ldquo;{ex.weak}&rdquo;
                   </p>
                 </div>
-
-                {/* Strong */}
                 <div>
                   <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-emerald-900/80">
                     Strong
@@ -376,7 +655,6 @@ function HookExamples() {
               </div>
             ))}
 
-            {/* Formula */}
             <div className="pt-1">
               <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[#2e2e2e]">
                 The formula
@@ -385,7 +663,6 @@ function HookExamples() {
                 {HOOK_FORMULA}
               </p>
             </div>
-
           </div>
         </div>
       </div>
@@ -395,17 +672,27 @@ function HookExamples() {
 
 // ─── deep check ───────────────────────────────────────────────────────────────
 
-function DeepCheckSection({ text, platform }: { text: string; platform: Platform }) {
+function DeepCheckSection({
+  text,
+  platform,
+  onResult,
+}: {
+  text:     string;
+  platform: Platform;
+  onResult: (result: DeepCheckResult | null, snapText: string | null) => void;
+}) {
   const [loading, setLoading] = useState(false);
-  const [issues, setIssues]   = useState<DeepIssue[] | null>(null);
+  const [result, setResult]   = useState<DeepCheckResult | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
   async function run() {
+    const snapText = text;
     setLoading(true);
     setError(null);
-    setIssues(null);
+    setResult(null);
+    onResult(null, null);
     try {
-      const res = await fetch("/api/deep-check", {
+      const res = await fetch("/api/deepcheck", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ text, platform }),
@@ -414,8 +701,9 @@ function DeepCheckSection({ text, platform }: { text: string; platform: Platform
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
-      const data = await res.json();
-      setIssues(Array.isArray(data.issues) ? data.issues : []);
+      const data = (await res.json()) as DeepCheckResult;
+      setResult(data);
+      onResult(data, snapText);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
     } finally {
@@ -443,25 +731,43 @@ function DeepCheckSection({ text, platform }: { text: string; platform: Platform
         <p className="mt-3 font-mono text-[11px] text-red-600">{error}</p>
       )}
 
-      {issues !== null && issues.length === 0 && !error && (
+      {result !== null && result.issues.length === 0 && !error && (
         <p className="mt-3 font-mono text-[11px] text-emerald-700">
           No semantic issues found.
         </p>
       )}
 
-      {issues && issues.length > 0 && (
+      {result?.topFix && (
+        <div className="mt-3 rounded border border-[#1e1e1e] bg-[#090909] p-3">
+          <p className="mb-1 font-mono text-[9px] uppercase tracking-widest text-[#383838]">
+            Top fix
+          </p>
+          <p className="text-[12px] italic leading-snug text-[#777]">{result.topFix}</p>
+        </div>
+      )}
+
+      {result && result.issues.length > 0 && (
         <ul className="mt-3 space-y-2">
-          {issues.map((issue, i) => (
+          {result.issues.map((issue, i) => (
             <li key={i} className="rounded border border-[#191919] bg-[#0b0b0b] p-3">
-              <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-[#404040]">
-                {issue.category}
-              </p>
-              <p className="mb-1.5 text-[12px] leading-snug text-[#888]">
-                {issue.issue}
-              </p>
-              <p className="text-[11px] italic leading-snug text-[#4a4a4a]">
-                {issue.suggestion}
-              </p>
+              <div className="mb-1 flex items-center gap-2">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-[#404040]">
+                  {issue.type}
+                </p>
+                <span
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+                    issue.severity === "high"
+                      ? "bg-red-950/40 text-red-600"
+                      : issue.severity === "medium"
+                      ? "bg-amber-950/40 text-amber-600"
+                      : "bg-[#151515] text-[#444]"
+                  }`}
+                >
+                  {issue.severity}
+                </span>
+              </div>
+              <p className="mb-1.5 text-[12px] leading-snug text-[#888]">{issue.note}</p>
+              <p className="text-[11px] italic leading-snug text-[#4a4a4a]">{issue.fix}</p>
             </li>
           ))}
         </ul>
@@ -473,9 +779,15 @@ function DeepCheckSection({ text, platform }: { text: string; platform: Platform
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export default function PostEditor() {
-  const [text, setText]         = useState("");
-  const [platform, setPlatform] = useState<Platform>("linkedin");
-  const textareaRef             = useRef<HTMLTextAreaElement>(null);
+  const [text, setText]                     = useState("");
+  const [platform, setPlatform]             = useState<Platform>("linkedin");
+  const [drafts, setDrafts]                 = useState<Draft[]>([]);
+  const [deepResult, setDeepResult]         = useState<DeepCheckResult | null>(null);
+  const [diffSnapshot, setDiffSnapshot]     = useState<string | null>(null);
+  const [showDiff, setShowDiff]             = useState(false);
+  const textareaRef                         = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setDrafts(loadDrafts()); }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -484,9 +796,8 @@ export default function PostEditor() {
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
-  // Run base + platform analysis on every text/platform change
   const analysis = useMemo(() => {
-    const EMPTY_RESULT = {
+    const EMPTY = {
       matches:            [] as Match[],
       hardCount:          0,
       slopCount:          0,
@@ -494,17 +805,13 @@ export default function PostEditor() {
       platformHookIssues: [] as string[],
       warnings:           [] as string[],
     };
-
-    if (!text.trim()) return EMPTY_RESULT;
+    if (!text.trim()) return EMPTY;
 
     const base = analyzeText(text);
     const { matches: pMatches, platformHookIssues, warnings } = analyzePlatform(text, platform);
 
-    // Merge: base is already deduped; platform patterns are distinct, so concat is safe.
-    // buildSegments handles rendering priority per-position.
     const allMatches = [...base.matches, ...pMatches].sort((a, b) => {
       if (a.start !== b.start) return a.start - b.start;
-      // hard(0) < slop(1) < hook(2) → lower wins first position → hard takes precedence
       const P: Record<Match["type"], number> = { hard: 0, slop: 1, hook: 2 };
       return P[a.type] - P[b.type];
     });
@@ -519,6 +826,68 @@ export default function PostEditor() {
     };
   }, [text, platform]);
 
+  const score = useMemo(() => {
+    if (!text.trim()) return 100;
+    return computeScore(
+      analysis.hardCount,
+      analysis.slopCount,
+      analysis.hookIssues,
+      analysis.platformHookIssues,
+      deepResult,
+    );
+  }, [analysis, deepResult, text]);
+
+  function handleDeepResult(result: DeepCheckResult | null, snapText: string | null) {
+    setDeepResult(result);
+    if (result !== null && snapText !== null) {
+      setDiffSnapshot(snapText);
+      setShowDiff(false);
+    }
+  }
+
+  function handleSaveDraft() {
+    if (!text.trim()) return;
+    const draft: Draft = {
+      id:      `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      text,
+      platform,
+      savedAt: Date.now(),
+    };
+    const updated = [draft, ...drafts.filter((d) => d.text !== text)].slice(0, MAX_DRAFTS);
+    setDrafts(updated);
+    persistDrafts(updated);
+  }
+
+  function handleLoadDraft(d: Draft) {
+    setText(d.text);
+    setPlatform(d.platform);
+    setDeepResult(null);
+    setDiffSnapshot(null);
+    setShowDiff(false);
+  }
+
+  function handleDeleteDraft(id: string) {
+    const updated = drafts.filter((d) => d.id !== id);
+    setDrafts(updated);
+    persistDrafts(updated);
+  }
+
+  function handleShareScore() {
+    const hookCount     = analysis.hookIssues.length + analysis.platformHookIssues.length;
+    const semanticCount = deepResult?.issues.length ?? 0;
+    const lines = [
+      `Hook Checker Score: ${score}/100 — ${scoreLabel(score)}`,
+      ``,
+      `Hard violations: ${analysis.hardCount}${analysis.hardCount > 0 ? ` (−${analysis.hardCount * 15})` : ""}`,
+      `AI slop: ${analysis.slopCount}${analysis.slopCount > 0 ? ` (−${analysis.slopCount * 8})` : ""}`,
+      `Hook issues: ${hookCount}${hookCount > 0 ? ` (−${hookCount * 10})` : ""}`,
+      `Semantic issues: ${semanticCount > 0 ? String(semanticCount) : "none"}`,
+    ];
+    navigator.clipboard.writeText(lines.join("\n")).catch(() => {});
+  }
+
+  const hasDiff = diffSnapshot !== null && text !== diffSnapshot;
+
   return (
     <div
       className="flex min-h-screen flex-col bg-[#0e0e0e] text-[#e8e4dc] lg:flex-row"
@@ -526,6 +895,13 @@ export default function PostEditor() {
     >
       {/* ── Left pane ── */}
       <div className="flex flex-col lg:w-[60%] lg:border-r lg:border-[#181818]">
+        <SaveDraftBar
+          drafts={drafts}
+          onSave={handleSaveDraft}
+          onLoad={handleLoadDraft}
+          onDelete={handleDeleteDraft}
+        />
+
         <textarea
           ref={textareaRef}
           value={text}
@@ -544,18 +920,54 @@ export default function PostEditor() {
 
         <div className="h-px bg-[#181818]" />
 
+        {hasDiff && (
+          <div className="flex items-center justify-between border-b border-[#181818] px-5 py-2">
+            <span className="font-mono text-[10px] text-[#383838]">
+              Changed since last check
+            </span>
+            <button
+              onClick={() => setShowDiff((s) => !s)}
+              className={`font-mono text-[10px] uppercase tracking-widest transition-colors ${
+                showDiff
+                  ? "text-emerald-700 hover:text-emerald-600"
+                  : "text-[#383838] hover:text-[#666]"
+              }`}
+            >
+              {showDiff ? "Hide diff" : "Show diff"}
+            </button>
+          </div>
+        )}
+
         <div className="min-h-[80px] flex-1">
-          <HighlightedPreview
-            text={text}
-            matches={analysis.matches}
-            platform={platform}
-          />
+          {showDiff && diffSnapshot ? (
+            <>
+              <div className="flex items-center justify-between border-b border-[#181818] px-5 py-2">
+                <span className="font-mono text-[10px] text-[#282828]">Diff</span>
+                <span className="font-mono text-[10px] text-[#2a2a2a]">
+                  <span className="text-emerald-900/80">+</span> added&nbsp;&nbsp;
+                  <span className="text-red-900/80">−</span> removed
+                </span>
+              </div>
+              <DiffView before={diffSnapshot} after={text} />
+            </>
+          ) : (
+            <HighlightedPreview
+              text={text}
+              matches={analysis.matches}
+              platform={platform}
+            />
+          )}
         </div>
       </div>
 
       {/* ── Right sidebar ── */}
       <aside className="lg:sticky lg:top-0 lg:h-screen lg:w-[40%] lg:overflow-y-auto">
         <div className="px-7">
+          <ScoreCard
+            score={score}
+            empty={!text.trim()}
+            onShare={handleShareScore}
+          />
           <StatCard
             count={analysis.hardCount}
             label="Hard violations"
@@ -583,7 +995,11 @@ export default function PostEditor() {
             onChange={setPlatform}
             charCount={text.length}
           />
-          <DeepCheckSection text={text} platform={platform} />
+          <DeepCheckSection
+            text={text}
+            platform={platform}
+            onResult={handleDeepResult}
+          />
         </div>
       </aside>
     </div>
