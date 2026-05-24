@@ -262,9 +262,13 @@ function hasProperNoun(line: string): boolean {
   return false;
 }
 
-// Tension signals: without, despite, instead of, rather than, although …
+// Tension signals: common contradiction/contrast words …
 const CONTRADICTION_RE =
-  /\b(?:without|despite|instead\s+of|rather\s+than|although|even\s+though|contrary\s+to|by\s+not|not\s+\w+(?:\s+\w+)?\s+but)\b/i;
+  /\b(?:without|despite|instead\s+of|rather\s+than|although|even\s+though|contrary\s+to|by\s+not|not\s+\w+(?:\s+\w+)?\s+but|but|yet|however|except\s+that)\b/i;
+
+// Short-line rebuttal: "Wrong target." / "False." / "Actually," etc. on its own line or after a period
+const SHORT_REBUTTAL_RE =
+  /(?:^|[.!?]\s{0,3}|\n)(?:Wrong|False|Not true|Not quite|Nope|Actually|Incorrect|No\.|Bullshit)\b/im;
 
 // Credibility signals: follower counts, titles, rankings, awards, credentials …
 const CREDIBILITY_RE =
@@ -287,7 +291,7 @@ function runHookChecks(text: string): {
   if (!hasProperNoun(line1)) {
     flag(0, line1End, "Weak hook: no proper noun in first line");
   }
-  if (!CONTRADICTION_RE.test(firstTwo)) {
+  if (!CONTRADICTION_RE.test(firstTwo) && !SHORT_REBUTTAL_RE.test(firstTwo)) {
     flag(0, twoLinesEnd, "Weak hook: no contradiction or tension signal");
   }
   if (!CREDIBILITY_RE.test(firstTwo)) {
