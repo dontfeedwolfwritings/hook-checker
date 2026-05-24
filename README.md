@@ -2,9 +2,7 @@
 
 A dark-theme editorial tool for writing better social media copy. Paste a LinkedIn post, YouTube title, or TikTok caption — it highlights AI tells, slop phrases, hard violations, and hook quality issues in real time.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYOUR_GITHUB_USERNAME%2Fhook-checker&env=ANTHROPIC_API_KEY&envDescription=Anthropic%20API%20key%20for%20the%20Deep%20Check%20feature&envLink=https%3A%2F%2Fconsole.anthropic.com)
-
-> **Before sharing this link:** replace `YOUR_GITHUB_USERNAME` in the badge URL above with your actual GitHub username.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdontfeedwolfwritings%2Fhook-checker&env=ANTHROPIC_API_KEY&envDescription=Anthropic%20API%20key%20for%20the%20Deep%20Check%20feature&envLink=https%3A%2F%2Fconsole.anthropic.com)
 
 ---
 
@@ -29,7 +27,7 @@ A dark-theme editorial tool for writing better social media copy. Paste a Linked
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_GITHUB_USERNAME/hook-checker.git
+git clone https://github.com/dontfeedwolfwritings/hook-checker.git
 cd hook-checker
 
 # 2. Install
