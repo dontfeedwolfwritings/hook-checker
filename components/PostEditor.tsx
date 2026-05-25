@@ -265,17 +265,74 @@ function HighlightedPreview({
   );
 }
 
-// ─── backdrop span (no-interaction version for inline overlay) ───────────────
+// ─── backdrop span ────────────────────────────────────────────────────────────
+// Renders the highlight colour. Passes its DOM ref up so HighlightEditor can
+// do bounding-rect hit-testing for hover tooltips (backdrop is pointer-events:none).
 
-function BackdropSpan({ seg }: { seg: Segment }) {
+function BackdropSpan({
+  seg,
+  onRef,
+}: {
+  seg:   Segment;
+  onRef?: (el: HTMLSpanElement | null) => void;
+}) {
   const { text, match } = seg;
   if (!match) return <span>{text}</span>;
-  return <span className={MATCH_STYLE[match.type]}>{text}</span>;
+  return (
+    <span ref={onRef} className={MATCH_STYLE[match.type]}>
+      {text}
+    </span>
+  );
+}
+
+// ─── inline-highlight tooltip ─────────────────────────────────────────────────
+
+const TOOLTIP_BADGE: Record<Match["type"], { label: string; cls: string }> = {
+  hard: { label: "VIOLATION", cls: "text-red-400"    },
+  slop: { label: "AI SLOP",   cls: "text-amber-400"  },
+  hook: { label: "HOOK",      cls: "text-blue-400"   },
+};
+
+const TOOLTIP_HINT: Record<Match["type"], string> = {
+  hard: "→ Remove — hard rule violation",
+  slop: "→ Delete or rephrase — signals AI-written copy",
+  hook: "→ Strengthen the hook: add a name, number, or contradiction",
+};
+
+function HighlightTooltip({
+  match,
+  x,
+  y,
+}: {
+  match: Match;
+  x:     number;
+  y:     number;
+}) {
+  const { label, cls } = TOOLTIP_BADGE[match.type];
+  // Keep tooltip on screen — flip below cursor if near top
+  const top = y > 72 ? y - 62 : y + 24;
+
+  return (
+    <div
+      className="pointer-events-none fixed z-50 max-w-xs rounded border border-[#2a2a2a] bg-[#141414] px-3 py-2 shadow-2xl"
+      style={{ left: x, top, transform: "translateX(-40%)" }}
+    >
+      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest">
+        <span className={cls}>{label}</span>
+        <span className="text-[#555]">·</span>
+        <span className="text-[#c8c4bc]">{match.label}</span>
+      </div>
+      <div className="mt-1 font-mono text-[10px] text-[#444]">
+        {TOOLTIP_HINT[match.type]}
+      </div>
+    </div>
+  );
 }
 
 // ─── inline highlight editor ──────────────────────────────────────────────────
 // Transparent textarea overlaid on a highlight-rendering backdrop.
-// The user types in the textarea; highlights show through from the div behind.
+// Mouse position on the textarea is tested against backdrop span bounding rects
+// to trigger hover tooltips without breaking pointer capture on the textarea.
 
 function HighlightEditor({
   text,
@@ -288,7 +345,10 @@ function HighlightEditor({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const spanRefs    = useRef<Map<number, HTMLSpanElement>>(new Map());
   const segments    = useMemo(() => buildSegments(text, matches), [text, matches]);
+
+  const [tooltip, setTooltip] = useState<{ match: Match; x: number; y: number } | null>(null);
 
   // Auto-expand textarea height
   useEffect(() => {
@@ -298,6 +358,9 @@ function HighlightEditor({
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
+  // Clear stale span refs whenever matches change
+  useEffect(() => { spanRefs.current.clear(); }, [matches]);
+
   // Keep backdrop scroll in sync with textarea
   function handleScroll() {
     if (backdropRef.current && textareaRef.current) {
@@ -305,41 +368,67 @@ function HighlightEditor({
     }
   }
 
+  // Hit-test backdrop spans from textarea mouse position
+  function handleMouseMove(e: React.MouseEvent<HTMLTextAreaElement>) {
+    const { clientX: x, clientY: y } = e;
+    for (const [start, el] of Array.from(spanRefs.current)) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        const match = matches.find((m) => m.start === start);
+        if (match) { setTooltip({ match, x, y }); return; }
+      }
+    }
+    setTooltip(null);
+  }
+
   return (
-    <div className="relative bg-[#111]">
-      {/* ── Backdrop: visible highlighted text ── */}
-      <div
-        ref={backdropRef}
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-5 py-5 text-base lg:text-[15px] leading-relaxed text-[#e8e4dc]"
-        style={{ fontFamily: "Georgia, 'Times New Roman', serif", wordWrap: "break-word" }}
-      >
-        {segments.map((seg) => (
-          <BackdropSpan key={seg.start} seg={seg} />
-        ))}
-        {/* zero-width space keeps backdrop height in sync when text ends with \n */}
-        &#8203;
+    <>
+      <div className="relative bg-[#111]">
+        {/* ── Backdrop: visible highlighted text (pointer-events:none) ── */}
+        <div
+          ref={backdropRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-5 py-5 text-base lg:text-[15px] leading-relaxed text-[#e8e4dc]"
+          style={{ fontFamily: "Georgia, 'Times New Roman', serif", wordWrap: "break-word" }}
+        >
+          {segments.map((seg) => (
+            <BackdropSpan
+              key={seg.start}
+              seg={seg}
+              onRef={seg.match ? (el) => {
+                if (el) spanRefs.current.set(seg.start, el);
+                else    spanRefs.current.delete(seg.start);
+              } : undefined}
+            />
+          ))}
+          &#8203;
+        </div>
+
+        {/* ── Textarea: captures input, transparent so backdrop shows through ── */}
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => onChange(e.target.value)}
+          onScroll={handleScroll}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setTooltip(null)}
+          placeholder="Paste or type your copy. Issues highlight in real time."
+          spellCheck={false}
+          rows={1}
+          className="relative z-10 w-full resize-none bg-transparent px-5 py-5 text-base lg:text-[15px] leading-relaxed text-transparent placeholder-[#2a2a2a] outline-none"
+          style={{
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            caretColor: "#e8e4dc",
+            minHeight:  "220px",
+            overflowY:  "hidden",
+            wordWrap:   "break-word",
+          }}
+        />
       </div>
 
-      {/* ── Textarea: captures input, transparent so backdrop shows through ── */}
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => onChange(e.target.value)}
-        onScroll={handleScroll}
-        placeholder="Paste or type your copy. Issues highlight in real time."
-        spellCheck={false}
-        rows={1}
-        className="relative z-10 w-full resize-none bg-transparent px-5 py-5 text-base lg:text-[15px] leading-relaxed text-transparent placeholder-[#2a2a2a] outline-none"
-        style={{
-          fontFamily: "Georgia, 'Times New Roman', serif",
-          caretColor: "#e8e4dc",
-          minHeight:  "220px",
-          overflowY:  "hidden",
-          wordWrap:   "break-word",
-        }}
-      />
-    </div>
+      {/* ── Tooltip: rendered outside relative container so z-index is global ── */}
+      {tooltip && <HighlightTooltip match={tooltip.match} x={tooltip.x} y={tooltip.y} />}
+    </>
   );
 }
 
