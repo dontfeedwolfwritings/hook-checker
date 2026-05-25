@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { analyzeText, type Match } from "@/lib/rules";
 import {
   analyzePlatform,
@@ -38,8 +39,31 @@ type DiffOp = { type: "equal" | "add" | "del"; text: string };
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
-const DRAFT_KEY  = "hc_drafts";
-const MAX_DRAFTS = 5;
+const DRAFT_KEY        = "hc_drafts";
+const MAX_DRAFTS       = 5;
+const USAGE_KEY        = "deepcheck_usage";
+const FREE_LIMIT       = 3;
+const STRIPE_LINK      = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK ?? "#";
+
+interface UsageData { count: number; date: string }
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function getUsage(): UsageData {
+  if (typeof window === "undefined") return { count: 0, date: todayStr() };
+  try {
+    const raw = localStorage.getItem(USAGE_KEY);
+    if (!raw) return { count: 0, date: todayStr() };
+    const parsed = JSON.parse(raw) as UsageData;
+    return parsed.date === todayStr() ? parsed : { count: 0, date: todayStr() };
+  } catch { return { count: 0, date: todayStr() }; }
+}
+function incrementUsage(): UsageData {
+  const next = { count: getUsage().count + 1, date: todayStr() };
+  localStorage.setItem(USAGE_KEY, JSON.stringify(next));
+  return next;
+}
 
 const MATCH_STYLE: Record<Match["type"], string> = {
   hard: "underline decoration-red-500   decoration-2 bg-red-950/40",
@@ -789,20 +813,96 @@ function HookExamples() {
 
 // ─── deep check ───────────────────────────────────────────────────────────────
 
+// ─── upgrade modal ────────────────────────────────────────────────────────────
+
+function UpgradeModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-sm rounded border border-[#252525] bg-[#111] p-7 text-center shadow-2xl">
+        <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-[#555]">
+          Daily limit reached
+        </p>
+        <h2 className="mb-3 text-[18px] font-normal leading-snug text-[#e8e4dc]">
+          You&apos;ve used your 3 free checks today
+        </h2>
+        <p className="mb-6 text-[13px] leading-relaxed text-[#666]">
+          Upgrade for unlimited deep checks — $5/month
+        </p>
+        <a
+          href={STRIPE_LINK}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-3 block w-full rounded border border-[#444] bg-[#1a1a1a] py-2.5 font-mono text-[11px] uppercase tracking-[0.15em] text-[#c8c4bc] transition-colors hover:border-[#666] hover:text-white"
+        >
+          Upgrade
+        </a>
+        <button
+          onClick={onClose}
+          className="block w-full py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-[#383838] transition-colors hover:text-[#666]"
+        >
+          Maybe tomorrow
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── upgrade banner ───────────────────────────────────────────────────────────
+
+function UpgradeBanner({ isSignedIn }: { isSignedIn: boolean }) {
+  const remaining = FREE_LIMIT - getUsage().count;
+  if (isSignedIn) {
+    return (
+      <div className="border-t border-[#181818] py-4">
+        <p className="font-mono text-[10px] text-emerald-700">
+          Pro — unlimited deep checks ✓
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="border-t border-[#181818] py-4">
+      <a
+        href={STRIPE_LINK}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-mono text-[10px] text-[#383838] transition-colors hover:text-[#666]"
+      >
+        {remaining > 0 ? `${remaining} free deep check${remaining === 1 ? "" : "s"} left today` : "No free checks left today"} · Upgrade for unlimited →
+      </a>
+    </div>
+  );
+}
+
+// ─── deep check ───────────────────────────────────────────────────────────────
+
 function DeepCheckSection({
   text,
   platform,
+  isSignedIn,
   onResult,
 }: {
-  text:     string;
-  platform: Platform;
-  onResult: (result: DeepCheckResult | null, snapText: string | null) => void;
+  text:       string;
+  platform:   Platform;
+  isSignedIn: boolean;
+  onResult:   (result: DeepCheckResult | null, snapText: string | null) => void;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<DeepCheckResult | null>(null);
-  const [error, setError]     = useState<string | null>(null);
+  const [loading, setLoading]           = useState(false);
+  const [result, setResult]             = useState<DeepCheckResult | null>(null);
+  const [error, setError]               = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade]   = useState(false);
 
   async function run() {
+    // Gate: free users limited to FREE_LIMIT checks per day
+    if (!isSignedIn) {
+      const usage = getUsage();
+      if (usage.count >= FREE_LIMIT) {
+        setShowUpgrade(true);
+        return;
+      }
+      incrementUsage();
+    }
+
     const snapText = text;
     setLoading(true);
     setError(null);
@@ -832,6 +932,7 @@ function DeepCheckSection({
 
   return (
     <div className="py-5">
+      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} />}
       <button
         onClick={run}
         disabled={disabled}
@@ -896,6 +997,7 @@ function DeepCheckSection({
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export default function PostEditor() {
+  const { isSignedIn = false }              = useUser();
   const [text, setText]                     = useState("");
   const [platform, setPlatform]             = useState<Platform>("linkedin");
   const [drafts, setDrafts]                 = useState<Draft[]>([]);
@@ -1012,10 +1114,23 @@ export default function PostEditor() {
     >
       {/* ── Left pane ── */}
       <div className="flex flex-col lg:w-[60%] lg:border-r lg:border-[#181818]">
-        <div className="border-b border-[#181818] px-5 py-3">
+        <div className="flex items-center justify-between border-b border-[#181818] px-5 py-3">
           <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#3a3a3a]">
             Clean Copy
           </span>
+          {isSignedIn ? (
+            <SignOutButton>
+              <button className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#2a2a2a] transition-colors hover:text-[#555]">
+                Sign out
+              </button>
+            </SignOutButton>
+          ) : (
+            <SignInButton mode="modal">
+              <button className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#2a2a2a] transition-colors hover:text-[#555]">
+                Sign in
+              </button>
+            </SignInButton>
+          )}
         </div>
         <SaveDraftBar
           drafts={drafts}
@@ -1136,8 +1251,10 @@ export default function PostEditor() {
           <DeepCheckSection
             text={text}
             platform={platform}
+            isSignedIn={isSignedIn}
             onResult={handleDeepResult}
           />
+          <UpgradeBanner isSignedIn={isSignedIn} />
         </div>
       </aside>
     </div>
