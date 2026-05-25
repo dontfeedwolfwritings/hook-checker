@@ -893,16 +893,6 @@ function DeepCheckSection({
   const [showUpgrade, setShowUpgrade]   = useState(false);
 
   async function run() {
-    // Gate: free users limited to FREE_LIMIT checks per day
-    if (!isSignedIn) {
-      const usage = getUsage();
-      if (usage.count >= FREE_LIMIT) {
-        setShowUpgrade(true);
-        return;
-      }
-      incrementUsage();
-    }
-
     const snapText = text;
     setLoading(true);
     setError(null);
@@ -914,10 +904,21 @@ function DeepCheckSection({
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ text, platform }),
       });
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({}));
+        const msg  = (body as { error?: string }).error ?? "";
+        if (msg.toLowerCase().includes("daily")) {
+          setShowUpgrade(true);
+          return;
+        }
+        throw new Error(msg || "Rate limit exceeded");
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
+      // Track locally for the banner display
+      if (!isSignedIn) incrementUsage();
       const data = (await res.json()) as DeepCheckResult;
       setResult(data);
       onResult(data, snapText);

@@ -1,18 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { auth } from "@clerk/nextjs/server";
 
-// ─── in-memory rate limiter ───────────────────────────────────────────────────
-// Note: per-process only — resets on cold starts and does not coordinate across
-// multiple serverless instances. Adequate for a single-user / small-team tool.
-
+// ─── burst rate limiter (per-minute) ─────────────────────────────────────────
 interface RateEntry {
   count:   number;
-  resetAt: number; // epoch ms when the window expires
+  resetAt: number;
 }
 
 const RATE_STORE  = new Map<string, RateEntry>();
 const RATE_LIMIT  = 10;
 const RATE_WINDOW = 60_000; // 1 minute
+
+// ─── daily free-tier limiter (unauthenticated only) ───────────────────────────
+// In-memory — resets on cold start, but still blocks incognito / new browsers
+// since the check is server-side by IP, not client-side by localStorage.
+
+interface DailyEntry {
+  count:   number;
+  resetAt: number; // next midnight UTC
+}
+
+const DAILY_STORE = new Map<string, DailyEntry>();
+const DAILY_LIMIT = 3;
+
+function nextMidnightUTC(): number {
+  const d = new Date();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+}
+
+function checkDaily(ip: string): { ok: boolean; remaining: number } {
+  const now   = Date.now();
+  const entry = DAILY_STORE.get(ip);
+
+  if (!entry || now >= entry.resetAt) {
+    DAILY_STORE.set(ip, { count: 1, resetAt: nextMidnightUTC() });
+    return { ok: true, remaining: DAILY_LIMIT - 1 };
+  }
+  if (entry.count >= DAILY_LIMIT) return { ok: false, remaining: 0 };
+  entry.count++;
+  return { ok: true, remaining: DAILY_LIMIT - entry.count };
+}
+
+function pruneDailyStore(): void {
+  const now = Date.now();
+  for (const [ip, entry] of Array.from(DAILY_STORE)) {
+    if (now >= entry.resetAt) DAILY_STORE.delete(ip);
+  }
+}
 
 function getIp(req: NextRequest): string {
   // x-forwarded-for may be a comma-separated list; take the first (client) address
@@ -105,7 +140,11 @@ function isDeepCheckResponse(v: unknown): v is DeepCheckResponse {
 // ─── route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // Prune stale entries then check rate limit
+  // Check Clerk auth — signed-in users get unlimited checks
+  const { userId } = await auth();
+  const isAuthenticated = !!userId;
+
+  // Burst rate limiter (everyone)
   pruneRateStore();
   const ip = getIp(req);
   const { ok, remaining } = checkRate(ip);
@@ -118,6 +157,18 @@ export async function POST(req: NextRequest) {
   }
 
   const rlHeaders = { "X-RateLimit-Remaining": String(remaining) };
+
+  // Daily free-tier limit (anonymous only)
+  if (!isAuthenticated) {
+    pruneDailyStore();
+    const daily = checkDaily(ip);
+    if (!daily.ok) {
+      return NextResponse.json(
+        { error: "Daily limit reached — 3 free deep checks per day. Sign in to get unlimited." },
+        { status: 429, headers: rlHeaders },
+      );
+    }
+  }
 
   // Parse and validate body
   let text: string;
