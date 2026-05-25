@@ -364,8 +364,9 @@ function HighlightEditor({
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
-  // Clear stale span refs whenever matches change
-  useEffect(() => { spanRefs.current.clear(); }, [matches]);
+  // Span refs are managed by the onRef callbacks in BackdropSpan —
+  // React calls onRef(null) on unmount and onRef(el) on mount, so the
+  // Map stays current automatically. No manual clearing needed.
 
   // Shared hit-test: returns the first Match whose backdrop span contains (x, y)
   function findMatchAtPoint(x: number, y: number): Match | null {
@@ -404,7 +405,7 @@ function HighlightEditor({
     longPressTimer.current = setTimeout(() => {
       const m = findMatchAtPoint(x, y);
       if (m) setTooltip({ match: m, x, y });
-    }, 500);
+    }, 300);
   }
 
   function handleTouchMove(e: React.TouchEvent<HTMLTextAreaElement>) {
