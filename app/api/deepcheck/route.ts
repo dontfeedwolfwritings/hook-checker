@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@clerk/nextjs/server";
+import { Redis } from "@upstash/redis";
 
-// ─── burst rate limiter (per-minute) ─────────────────────────────────────────
+// ─── burst rate limiter (per-minute, in-memory) ───────────────────────────────
 interface RateEntry {
   count:   number;
   resetAt: number;
@@ -12,41 +13,45 @@ const RATE_STORE  = new Map<string, RateEntry>();
 const RATE_LIMIT  = 10;
 const RATE_WINDOW = 60_000; // 1 minute
 
-// ─── daily free-tier limiter (unauthenticated only) ───────────────────────────
-// In-memory — resets on cold start, but still blocks incognito / new browsers
-// since the check is server-side by IP, not client-side by localStorage.
-
-interface DailyEntry {
-  count:   number;
-  resetAt: number; // next midnight UTC
-}
-
-const DAILY_STORE = new Map<string, DailyEntry>();
+// ─── persistent daily limiter via Upstash Redis ───────────────────────────────
 const DAILY_LIMIT = 3;
 
-function nextMidnightUTC(): number {
-  const d = new Date();
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+// Lazily initialise so missing env vars don't crash at import time
+let redis: Redis | null = null;
+function getRedis(): Redis | null {
+  if (redis) return redis;
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    redis = new Redis({
+      url:   process.env.KV_REST_API_URL,
+      token: process.env.KV_REST_API_TOKEN,
+    });
+  }
+  return redis;
 }
 
-function checkDaily(ip: string): { ok: boolean; remaining: number } {
-  const now   = Date.now();
-  const entry = DAILY_STORE.get(ip);
-
-  if (!entry || now >= entry.resetAt) {
-    DAILY_STORE.set(ip, { count: 1, resetAt: nextMidnightUTC() });
-    return { ok: true, remaining: DAILY_LIMIT - 1 };
-  }
-  if (entry.count >= DAILY_LIMIT) return { ok: false, remaining: 0 };
-  entry.count++;
-  return { ok: true, remaining: DAILY_LIMIT - entry.count };
+function todayUTC(): string {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-function pruneDailyStore(): void {
-  const now = Date.now();
-  for (const [ip, entry] of Array.from(DAILY_STORE)) {
-    if (now >= entry.resetAt) DAILY_STORE.delete(ip);
+// Returns seconds until next midnight UTC — used as Redis TTL
+function secondsUntilMidnight(): number {
+  const now  = Date.now();
+  const d    = new Date();
+  const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+  return Math.ceil((next - now) / 1000);
+}
+
+async function checkDailyRedis(ip: string): Promise<{ ok: boolean }> {
+  const r = getRedis();
+  if (!r) return { ok: true }; // Redis not configured — fail open
+
+  const key   = `dc:${ip}:${todayUTC()}`;
+  const count = await r.incr(key);
+  if (count === 1) {
+    // First hit today — set TTL so key auto-expires at midnight
+    await r.expire(key, secondsUntilMidnight());
   }
+  return { ok: count <= DAILY_LIMIT };
 }
 
 function getIp(req: NextRequest): string {
@@ -158,10 +163,9 @@ export async function POST(req: NextRequest) {
 
   const rlHeaders = { "X-RateLimit-Remaining": String(remaining) };
 
-  // Daily free-tier limit (anonymous only)
+  // Daily free-tier limit (anonymous only) — persisted in Redis
   if (!isAuthenticated) {
-    pruneDailyStore();
-    const daily = checkDaily(ip);
+    const daily = await checkDailyRedis(ip);
     if (!daily.ok) {
       return NextResponse.json(
         { error: "Daily limit reached — 3 free deep checks per day. Sign in to get unlimited." },
