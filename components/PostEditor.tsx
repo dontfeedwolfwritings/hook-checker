@@ -1006,6 +1006,7 @@ export default function PostEditor() {
   const [deepResult, setDeepResult]         = useState<DeepCheckResult | null>(null);
   const [diffSnapshot, setDiffSnapshot]     = useState<string | null>(null);
   const [showDiff, setShowDiff]             = useState(false);
+  const [mobileTab, setMobileTab]           = useState<"write" | "results">("write");
   const textareaRef                         = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { setDrafts(loadDrafts()); }, []);
@@ -1063,6 +1064,7 @@ export default function PostEditor() {
     if (result !== null && snapText !== null) {
       setDiffSnapshot(snapText);
       setShowDiff(false);
+      setMobileTab("results"); // auto-switch to results pane on mobile
     }
   }
 
@@ -1111,11 +1113,34 @@ export default function PostEditor() {
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-[#0e0e0e] text-[#e8e4dc] lg:flex-row"
+      className="flex min-h-screen flex-col bg-[#0e0e0e] text-[#e8e4dc]"
       style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
     >
+      {/* ── Mobile tab bar (hidden on desktop) ── */}
+      <div className="flex border-b border-[#181818] bg-[#0e0e0e] lg:hidden">
+        <button
+          onClick={() => setMobileTab("write")}
+          className={`flex-1 py-3 font-mono text-[10px] uppercase tracking-widest transition-colors ${
+            mobileTab === "write" ? "text-[#e8e4dc]" : "text-[#3a3a3a]"
+          }`}
+        >
+          Write
+        </button>
+        <button
+          onClick={() => setMobileTab("results")}
+          className={`flex-1 py-3 font-mono text-[10px] uppercase tracking-widest transition-colors ${
+            mobileTab === "results" ? "text-[#e8e4dc]" : "text-[#3a3a3a]"
+          }`}
+        >
+          {text.trim() ? `Results · ${score}` : "Results"}
+        </button>
+      </div>
+
+      {/* ── Content area ── */}
+      <div className="flex flex-1 flex-col lg:flex-row">
+
       {/* ── Left pane ── */}
-      <div className="flex flex-col lg:w-[60%] lg:border-r lg:border-[#181818]">
+      <div className={`${mobileTab === "results" ? "hidden lg:flex" : "flex"} flex-col lg:w-[60%] lg:border-r lg:border-[#181818]`}>
         <div className="flex items-center justify-between border-b border-[#181818] px-5 py-3">
           <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#3a3a3a]">
             Clean Copy
@@ -1148,7 +1173,7 @@ export default function PostEditor() {
           placeholder="Paste or type your copy. Issues highlight in real time."
           spellCheck={false}
           rows={1}
-          className="w-full resize-none bg-[#111] px-5 py-5 text-[15px] leading-relaxed text-[#e8e4dc] placeholder-[#2a2a2a] outline-none"
+          className="w-full resize-none bg-[#111] px-5 py-5 text-base lg:text-[15px] leading-relaxed text-[#e8e4dc] placeholder-[#2a2a2a] outline-none"
           style={{
             fontFamily: "Georgia, 'Times New Roman', serif",
             minHeight:  "220px",
@@ -1208,7 +1233,7 @@ export default function PostEditor() {
       </div>
 
       {/* ── Right sidebar ── */}
-      <aside className="lg:sticky lg:top-0 lg:h-screen lg:w-[40%] lg:overflow-y-auto">
+      <aside className={`${mobileTab === "write" ? "hidden lg:block" : "block"} lg:sticky lg:top-0 lg:h-screen lg:w-[40%] lg:overflow-y-auto`}>
         <div className="px-7">
           <ScoreCard
             score={score}
@@ -1259,6 +1284,7 @@ export default function PostEditor() {
           <UpgradeBanner isSignedIn={isPro} />
         </div>
       </aside>
+      </div>{/* end content area */}
     </div>
   );
 }
