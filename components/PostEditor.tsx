@@ -993,7 +993,7 @@ export default function PostEditor() {
     const hookCount     = analysis.hookIssues.length + analysis.platformHookIssues.length;
     const semanticCount = deepResult?.issues.length ?? 0;
     const lines = [
-      `Hook Checker Score: ${score}/100 — ${scoreLabel(score)}`,
+      `Clean Copy Score: ${score}/100 — ${scoreLabel(score)}`,
       ``,
       `Hard violations: ${analysis.hardCount}${analysis.hardCount > 0 ? ` (−${analysis.hardCount * 15})` : ""}`,
       `AI slop: ${analysis.slopCount}${analysis.slopCount > 0 ? ` (−${analysis.slopCount * 8})` : ""}`,
@@ -1012,6 +1012,11 @@ export default function PostEditor() {
     >
       {/* ── Left pane ── */}
       <div className="flex flex-col lg:w-[60%] lg:border-r lg:border-[#181818]">
+        <div className="border-b border-[#181818] px-5 py-3">
+          <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#3a3a3a]">
+            Clean Copy
+          </span>
+        </div>
         <SaveDraftBar
           drafts={drafts}
           onSave={handleSaveDraft}

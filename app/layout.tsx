@@ -14,7 +14,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Hook Checker",
+  title: "Clean Copy",
   description: "Catch AI slop, weak hooks, and voice drift before you publish.",
 };
 
