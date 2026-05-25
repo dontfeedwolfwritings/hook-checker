@@ -265,6 +265,84 @@ function HighlightedPreview({
   );
 }
 
+// ─── backdrop span (no-interaction version for inline overlay) ───────────────
+
+function BackdropSpan({ seg }: { seg: Segment }) {
+  const { text, match } = seg;
+  if (!match) return <span>{text}</span>;
+  return <span className={MATCH_STYLE[match.type]}>{text}</span>;
+}
+
+// ─── inline highlight editor ──────────────────────────────────────────────────
+// Transparent textarea overlaid on a highlight-rendering backdrop.
+// The user types in the textarea; highlights show through from the div behind.
+
+function HighlightEditor({
+  text,
+  matches,
+  onChange,
+}: {
+  text:     string;
+  matches:  Match[];
+  onChange: (t: string) => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const segments    = useMemo(() => buildSegments(text, matches), [text, matches]);
+
+  // Auto-expand textarea height
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+
+  // Keep backdrop scroll in sync with textarea
+  function handleScroll() {
+    if (backdropRef.current && textareaRef.current) {
+      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  }
+
+  return (
+    <div className="relative bg-[#111]">
+      {/* ── Backdrop: visible highlighted text ── */}
+      <div
+        ref={backdropRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-5 py-5 text-base lg:text-[15px] leading-relaxed text-[#e8e4dc]"
+        style={{ fontFamily: "Georgia, 'Times New Roman', serif", wordWrap: "break-word" }}
+      >
+        {segments.map((seg) => (
+          <BackdropSpan key={seg.start} seg={seg} />
+        ))}
+        {/* zero-width space keeps backdrop height in sync when text ends with \n */}
+        &#8203;
+      </div>
+
+      {/* ── Textarea: captures input, transparent so backdrop shows through ── */}
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={handleScroll}
+        placeholder="Paste or type your copy. Issues highlight in real time."
+        spellCheck={false}
+        rows={1}
+        className="relative z-10 w-full resize-none bg-transparent px-5 py-5 text-base lg:text-[15px] leading-relaxed text-transparent placeholder-[#2a2a2a] outline-none"
+        style={{
+          fontFamily: "Georgia, 'Times New Roman', serif",
+          caretColor: "#e8e4dc",
+          minHeight:  "220px",
+          overflowY:  "hidden",
+          wordWrap:   "break-word",
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── score card ───────────────────────────────────────────────────────────────
 
 function ScoreCard({
@@ -1007,16 +1085,8 @@ export default function PostEditor() {
   const [diffSnapshot, setDiffSnapshot]     = useState<string | null>(null);
   const [showDiff, setShowDiff]             = useState(false);
   const [mobileTab, setMobileTab]           = useState<"write" | "results">("write");
-  const textareaRef                         = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { setDrafts(loadDrafts()); }, []);
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [text]);
 
   const analysis = useMemo(() => {
     const EMPTY = {
@@ -1166,62 +1236,45 @@ export default function PostEditor() {
           onDelete={handleDeleteDraft}
         />
 
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Paste or type your copy. Issues highlight in real time."
-          spellCheck={false}
-          rows={1}
-          className="w-full resize-none bg-[#111] px-5 py-5 text-base lg:text-[15px] leading-relaxed text-[#e8e4dc] placeholder-[#2a2a2a] outline-none"
-          style={{
-            fontFamily: "Georgia, 'Times New Roman', serif",
-            minHeight:  "220px",
-            border:     "none",
-            overflowY:  "hidden",
-          }}
+        {/* ── Inline highlight editor ── */}
+        <HighlightEditor
+          text={text}
+          matches={analysis.matches}
+          onChange={setText}
         />
 
-        <div className="h-px bg-[#181818]" />
-
+        {/* ── Diff toggle + view (only visible after a deep check with edits) ── */}
         {hasDiff && (
-          <div className="flex items-center justify-between border-b border-[#181818] px-5 py-2">
-            <span className="font-mono text-[10px] text-[#383838]">
-              Changed since last check
-            </span>
-            <button
-              onClick={() => setShowDiff((s) => !s)}
-              className={`font-mono text-[10px] uppercase tracking-widest transition-colors ${
-                showDiff
-                  ? "text-emerald-700 hover:text-emerald-600"
-                  : "text-[#383838] hover:text-[#666]"
-              }`}
-            >
-              {showDiff ? "Hide diff" : "Show diff"}
-            </button>
+          <div className="border-t border-[#181818]">
+            <div className="flex items-center justify-between px-5 py-2">
+              <span className="font-mono text-[10px] text-[#383838]">
+                Changed since last check
+              </span>
+              <button
+                onClick={() => setShowDiff((s) => !s)}
+                className={`font-mono text-[10px] uppercase tracking-widest transition-colors ${
+                  showDiff
+                    ? "text-emerald-700 hover:text-emerald-600"
+                    : "text-[#383838] hover:text-[#666]"
+                }`}
+              >
+                {showDiff ? "Hide diff" : "Show diff"}
+              </button>
+            </div>
+            {showDiff && diffSnapshot && (
+              <>
+                <div className="flex items-center justify-between border-t border-[#181818] px-5 py-2">
+                  <span className="font-mono text-[10px] text-[#282828]">Diff</span>
+                  <span className="font-mono text-[10px] text-[#2a2a2a]">
+                    <span className="text-emerald-900/80">+</span> added&nbsp;&nbsp;
+                    <span className="text-red-900/80">−</span> removed
+                  </span>
+                </div>
+                <DiffView before={diffSnapshot} after={text} />
+              </>
+            )}
           </div>
         )}
-
-        <div className="flex-1">
-          {showDiff && diffSnapshot ? (
-            <>
-              <div className="flex items-center justify-between border-b border-[#181818] px-5 py-2">
-                <span className="font-mono text-[10px] text-[#282828]">Diff</span>
-                <span className="font-mono text-[10px] text-[#2a2a2a]">
-                  <span className="text-emerald-900/80">+</span> added&nbsp;&nbsp;
-                  <span className="text-red-900/80">−</span> removed
-                </span>
-              </div>
-              <DiffView before={diffSnapshot} after={text} />
-            </>
-          ) : (
-            <HighlightedPreview
-              text={text}
-              matches={analysis.matches}
-              platform={platform}
-            />
-          )}
-        </div>
         <div className="border-t border-[#181818] px-5 py-3">
           <a
             href="https://cleancopy.io"
