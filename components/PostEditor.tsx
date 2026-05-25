@@ -1115,16 +1115,17 @@ function DeepCheckSection({
   platform,
   isSignedIn,
   onResult,
+  onShowUpgrade,
 }: {
-  text:       string;
-  platform:   Platform;
-  isSignedIn: boolean;
-  onResult:   (result: DeepCheckResult | null, snapText: string | null) => void;
+  text:          string;
+  platform:      Platform;
+  isSignedIn:    boolean;
+  onResult:      (result: DeepCheckResult | null, snapText: string | null) => void;
+  onShowUpgrade: () => void;
 }) {
-  const [loading, setLoading]           = useState(false);
-  const [result, setResult]             = useState<DeepCheckResult | null>(null);
-  const [error, setError]               = useState<string | null>(null);
-  const [showUpgrade, setShowUpgrade]   = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult]   = useState<DeepCheckResult | null>(null);
+  const [error, setError]     = useState<string | null>(null);
 
   async function run() {
     const snapText = text;
@@ -1142,7 +1143,7 @@ function DeepCheckSection({
         const body = await res.json().catch(() => ({}));
         const msg  = (body as { error?: string }).error ?? "";
         if (msg.toLowerCase().includes("daily")) {
-          setShowUpgrade(true);
+          onShowUpgrade();
           return;
         }
         throw new Error(msg || "Rate limit exceeded");
@@ -1167,7 +1168,6 @@ function DeepCheckSection({
 
   return (
     <div className="py-5">
-      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} />}
       <button
         onClick={run}
         disabled={disabled}
@@ -1237,6 +1237,7 @@ export default function PostEditor() {
   const [text, setText]                     = useState("");
   const [platform, setPlatform]             = useState<Platform>("linkedin");
   const [drafts, setDrafts]                 = useState<Draft[]>([]);
+  const [showUpgrade, setShowUpgrade]       = useState(false);
   const [deepResult, setDeepResult]         = useState<DeepCheckResult | null>(null);
   const [diffSnapshot, setDiffSnapshot]     = useState<string | null>(null);
   const [showDiff, setShowDiff]             = useState(false);
@@ -1342,6 +1343,9 @@ export default function PostEditor() {
       className="flex min-h-screen flex-col bg-[#0e0e0e] text-[#e8e4dc]"
       style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
     >
+      {/* ── Upgrade modal — rendered at root level to escape sticky/overflow stacking contexts ── */}
+      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} />}
+
       {/* ── Mobile tab bar (hidden on desktop) ── */}
       <div className="flex border-b border-[#181818] bg-[#0e0e0e] lg:hidden">
         <button
@@ -1489,6 +1493,7 @@ export default function PostEditor() {
             platform={platform}
             isSignedIn={isPro}
             onResult={handleDeepResult}
+            onShowUpgrade={() => setShowUpgrade(true)}
           />
           <UpgradeBanner isSignedIn={isPro} />
         </div>
