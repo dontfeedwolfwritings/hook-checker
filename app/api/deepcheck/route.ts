@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { Redis } from "@upstash/redis";
 
 // ─── burst rate limiter (per-minute, in-memory) ───────────────────────────────
