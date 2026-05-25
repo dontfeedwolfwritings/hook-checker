@@ -309,21 +309,37 @@ function HighlightTooltip({
   y:     number;
 }) {
   const { label, cls } = TOOLTIP_BADGE[match.type];
-  // Keep tooltip on screen — flip below finger/cursor if near top edge
-  // Use 90 px offset so a thumb doesn't occlude the card on mobile
-  const top = y > 100 ? y - 90 : y + 28;
+
+  // Mobile (< 1024 px): pin to top of screen, centered, full-width-ish.
+  // Desktop: follow cursor, flip below if near top edge.
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+
+  const posStyle: React.CSSProperties = isMobile
+    ? {
+        left:      "50%",
+        top:       "56px",
+        transform: "translateX(-50%)",
+        width:     "calc(100vw - 32px)",
+        maxWidth:  "420px",
+      }
+    : {
+        left:      x,
+        top:       y > 100 ? y - 90 : y + 28,
+        transform: "translateX(-40%)",
+        maxWidth:  "320px",
+      };
 
   return (
     <div
-      className="pointer-events-none fixed z-50 max-w-xs rounded border border-[#2a2a2a] bg-[#141414] px-3 py-2 shadow-2xl"
-      style={{ left: x, top, transform: "translateX(-40%)" }}
+      className="pointer-events-none fixed z-50 rounded border border-[#2a2a2a] bg-[#141414] px-4 py-3 shadow-2xl"
+      style={posStyle}
     >
-      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest">
+      <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-widest">
         <span className={cls}>{label}</span>
         <span className="text-[#555]">·</span>
         <span className="text-[#c8c4bc]">{match.label}</span>
       </div>
-      <div className="mt-1 font-mono text-[10px] text-[#444]">
+      <div className="mt-1.5 font-mono text-[11px] text-[#555]">
         {TOOLTIP_HINT[match.type]}
       </div>
     </div>
