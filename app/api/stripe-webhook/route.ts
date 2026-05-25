@@ -23,9 +23,6 @@ async function setUserPlan(email: string, plan: "pro" | "free") {
 
 // ─── route ────────────────────────────────────────────────────────────────────
 
-// Stripe sends the raw body — Next.js must NOT parse it before we verify the sig
-export const config = { api: { bodyParser: false } };
-
 export async function POST(req: NextRequest) {
   const body    = await req.text();
   const sig     = req.headers.get("stripe-signature");
