@@ -309,8 +309,9 @@ function HighlightTooltip({
   y:     number;
 }) {
   const { label, cls } = TOOLTIP_BADGE[match.type];
-  // Keep tooltip on screen — flip below cursor if near top
-  const top = y > 72 ? y - 62 : y + 24;
+  // Keep tooltip on screen — flip below finger/cursor if near top edge
+  // Use 90 px offset so a thumb doesn't occlude the card on mobile
+  const top = y > 100 ? y - 90 : y + 28;
 
   return (
     <div
@@ -331,8 +332,10 @@ function HighlightTooltip({
 
 // ─── inline highlight editor ──────────────────────────────────────────────────
 // Transparent textarea overlaid on a highlight-rendering backdrop.
-// Mouse position on the textarea is tested against backdrop span bounding rects
-// to trigger hover tooltips without breaking pointer capture on the textarea.
+// Desktop: mousemove hit-tests backdrop span bounding rects → hover tooltip.
+// Mobile:  touchstart starts a 500 ms long-press timer → same hit-test → tooltip.
+//          touchmove > 8 px cancels the timer so normal scrolling is unaffected.
+//          touchend dismisses the tooltip after 1.5 s so the user has time to read.
 
 function HighlightEditor({
   text,
@@ -343,10 +346,13 @@ function HighlightEditor({
   matches:  Match[];
   onChange: (t: string) => void;
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
-  const spanRefs    = useRef<Map<number, HTMLSpanElement>>(new Map());
-  const segments    = useMemo(() => buildSegments(text, matches), [text, matches]);
+  const textareaRef     = useRef<HTMLTextAreaElement>(null);
+  const backdropRef     = useRef<HTMLDivElement>(null);
+  const spanRefs        = useRef<Map<number, HTMLSpanElement>>(new Map());
+  const longPressTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPos   = useRef<{ x: number; y: number } | null>(null);
+  const dismissTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const segments        = useMemo(() => buildSegments(text, matches), [text, matches]);
 
   const [tooltip, setTooltip] = useState<{ match: Match; x: number; y: number } | null>(null);
 
@@ -361,6 +367,18 @@ function HighlightEditor({
   // Clear stale span refs whenever matches change
   useEffect(() => { spanRefs.current.clear(); }, [matches]);
 
+  // Shared hit-test: returns the first Match whose backdrop span contains (x, y)
+  function findMatchAtPoint(x: number, y: number): Match | null {
+    for (const [start, el] of Array.from(spanRefs.current)) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        const m = matches.find((m) => m.start === start);
+        if (m) return m;
+      }
+    }
+    return null;
+  }
+
   // Keep backdrop scroll in sync with textarea
   function handleScroll() {
     if (backdropRef.current && textareaRef.current) {
@@ -368,17 +386,46 @@ function HighlightEditor({
     }
   }
 
-  // Hit-test backdrop spans from textarea mouse position
+  // ── Desktop: hover ──────────────────────────────────────────────────────────
   function handleMouseMove(e: React.MouseEvent<HTMLTextAreaElement>) {
-    const { clientX: x, clientY: y } = e;
-    for (const [start, el] of Array.from(spanRefs.current)) {
-      const r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-        const match = matches.find((m) => m.start === start);
-        if (match) { setTooltip({ match, x, y }); return; }
-      }
+    const m = findMatchAtPoint(e.clientX, e.clientY);
+    setTooltip(m ? { match: m, x: e.clientX, y: e.clientY } : null);
+  }
+
+  // ── Mobile: long-press ──────────────────────────────────────────────────────
+  function handleTouchStart(e: React.TouchEvent<HTMLTextAreaElement>) {
+    const t = e.touches[0];
+    const x = t.clientX;
+    const y = t.clientY;
+    touchStartPos.current = { x, y };
+
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+
+    longPressTimer.current = setTimeout(() => {
+      const m = findMatchAtPoint(x, y);
+      if (m) setTooltip({ match: m, x, y });
+    }, 500);
+  }
+
+  function handleTouchMove(e: React.TouchEvent<HTMLTextAreaElement>) {
+    if (!longPressTimer.current || !touchStartPos.current) return;
+    const t   = e.touches[0];
+    const dx  = t.clientX - touchStartPos.current.x;
+    const dy  = t.clientY - touchStartPos.current.y;
+    if (Math.sqrt(dx * dx + dy * dy) > 8) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+      setTooltip(null);
     }
-    setTooltip(null);
+  }
+
+  function handleTouchEnd() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    // Keep tooltip visible for 1.5 s so the user can read it
+    dismissTimer.current = setTimeout(() => setTooltip(null), 1500);
   }
 
   return (
@@ -412,6 +459,9 @@ function HighlightEditor({
           onScroll={handleScroll}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setTooltip(null)}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           placeholder="Paste or type your copy. Issues highlight in real time."
           spellCheck={false}
           rows={1}
