@@ -15,7 +15,7 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "Clean Copy",
-  description: "Catch AI slop, weak hooks, and voice drift before you publish.",
+  description: "A Hemingway editor for AI slop and weak hooks.",
 };
 
 export default function RootLayout({

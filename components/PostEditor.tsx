@@ -1060,7 +1060,7 @@ export default function PostEditor() {
           </div>
         )}
 
-        <div className="min-h-[80px] flex-1">
+        <div className="flex-1">
           {showDiff && diffSnapshot ? (
             <>
               <div className="flex items-center justify-between border-b border-[#181818] px-5 py-2">
@@ -1079,6 +1079,14 @@ export default function PostEditor() {
               platform={platform}
             />
           )}
+        </div>
+        <div className="border-t border-[#181818] px-5 py-3">
+          <a
+            href="https://cleancopy.io"
+            className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#2a2a2a] hover:text-[#444] transition-colors"
+          >
+            cleancopy.io
+          </a>
         </div>
       </div>
 
