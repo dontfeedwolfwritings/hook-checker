@@ -145,9 +145,18 @@ function isDeepCheckResponse(v: unknown): v is DeepCheckResponse {
 // ─── route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // Check Clerk auth — signed-in users get unlimited checks
+  // Check Clerk auth — only Pro subscribers get unlimited checks
   const { userId } = await auth();
-  const isAuthenticated = !!userId;
+  let isPro = false;
+  if (userId) {
+    try {
+      const clerk = await clerkClient();
+      const user  = await clerk.users.getUser(userId);
+      isPro = user.publicMetadata?.plan === "pro";
+    } catch {
+      isPro = false; // fail closed — don't grant unlimited on Clerk error
+    }
+  }
 
   // Burst rate limiter (everyone)
   pruneRateStore();
@@ -163,8 +172,8 @@ export async function POST(req: NextRequest) {
 
   const rlHeaders = { "X-RateLimit-Remaining": String(remaining) };
 
-  // Daily free-tier limit (anonymous only) — persisted in Redis
-  if (!isAuthenticated) {
+  // Daily free-tier limit — anyone who isn't a verified Pro subscriber
+  if (!isPro) {
     const daily = await checkDailyRedis(ip);
     if (!daily.ok) {
       return NextResponse.json(

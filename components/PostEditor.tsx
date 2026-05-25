@@ -918,7 +918,7 @@ function DeepCheckSection({
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
       // Track locally for the banner display
-      if (!isSignedIn) incrementUsage();
+      if (!isPro) incrementUsage();
       const data = (await res.json()) as DeepCheckResult;
       setResult(data);
       onResult(data, snapText);
@@ -998,7 +998,8 @@ function DeepCheckSection({
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export default function PostEditor() {
-  const { isSignedIn = false }              = useUser();
+  const { isSignedIn = false, user }        = useUser();
+  const isPro = user?.publicMetadata?.plan === "pro";
   const [text, setText]                     = useState("");
   const [platform, setPlatform]             = useState<Platform>("linkedin");
   const [drafts, setDrafts]                 = useState<Draft[]>([]);
@@ -1252,10 +1253,10 @@ export default function PostEditor() {
           <DeepCheckSection
             text={text}
             platform={platform}
-            isSignedIn={isSignedIn}
+            isSignedIn={isPro}
             onResult={handleDeepResult}
           />
-          <UpgradeBanner isSignedIn={isSignedIn} />
+          <UpgradeBanner isSignedIn={isPro} />
         </div>
       </aside>
     </div>
