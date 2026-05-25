@@ -918,7 +918,7 @@ function DeepCheckSection({
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
       // Track locally for the banner display
-      if (!isPro) incrementUsage();
+      if (!isSignedIn) incrementUsage();
       const data = (await res.json()) as DeepCheckResult;
       setResult(data);
       onResult(data, snapText);
