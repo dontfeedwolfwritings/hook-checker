@@ -1,36 +1,49 @@
 import { type Match } from "./rules";
 
-export type Platform = "linkedin" | "youtube" | "tiktok";
+export type Platform = "linkedin" | "x" | "facebook" | "youtube" | "tiktok";
 
 // ─── config & char-counter ────────────────────────────────────────────────────
 
 interface PlatformLimits {
   idealMin: number; // lower green boundary
   idealMax: number; // upper green boundary
-  softMax:  number; // amber → red threshold
+  softMax:  number; // amber -> red threshold
 }
 
 interface PlatformConfig {
-  tabLabel: string;
-  limits: PlatformLimits;
-  note: string;
+  tabLabel:   string;
+  limits:     PlatformLimits;
+  note:       string;
+  comingSoon?: true; // when set, platform is excluded from the active selector
 }
 
 export const PLATFORM_CONFIG: Record<Platform, PlatformConfig> = {
   linkedin: {
     tabLabel: "LinkedIn",
-    limits: { idealMin: 900, idealMax: 1200, softMax: 3000 },
-    note: "Hook ≤200 · Full post: 900–1,200",
+    limits:   { idealMin: 900, idealMax: 1200, softMax: 3000 },
+    note:     "Hook <=200 chars · Full post: 900-1,200",
+  },
+  x: {
+    tabLabel: "X",
+    limits:   { idealMin: 100, idealMax: 240, softMax: 280 },
+    note:     "280-char limit · lead with the hook",
+  },
+  facebook: {
+    tabLabel: "Facebook",
+    limits:   { idealMin: 400, idealMax: 1500, softMax: 63000 },
+    note:     'Hook ~477 chars before "See more"',
   },
   youtube: {
-    tabLabel: "YouTube",
-    limits: { idealMin: 40, idealMax: 60, softMax: 100 },
-    note: "Ideal 40–60 chars · hard cap ~100",
+    tabLabel:   "YouTube",
+    limits:     { idealMin: 40, idealMax: 60, softMax: 100 },
+    note:       "Ideal 40-60 chars · hard cap ~100",
+    comingSoon: true,
   },
   tiktok: {
-    tabLabel: "TikTok",
-    limits: { idealMin: 1, idealMax: 125, softMax: 150 },
-    note: "First 125 visible · cap at 150",
+    tabLabel:   "TikTok",
+    limits:     { idealMin: 1, idealMax: 125, softMax: 150 },
+    note:       "First 125 visible · cap at 150",
+    comingSoon: true,
   },
 };
 
@@ -71,7 +84,7 @@ function toMatches(
   return hits.map((h) => ({ ...h, type, label }));
 }
 
-// Identical to the version in rules.ts — detects a mid-sentence capital word
+// Detects a mid-sentence capital word (proxy for proper noun)
 function hasProperNoun(text: string): boolean {
   const re = /\b([A-Z][a-zA-Z]{1,})\b/g;
   let m: RegExpExecArray | null;
@@ -94,72 +107,129 @@ export interface PlatformResult {
 
 const EMPTY: PlatformResult = { matches: [], platformHookIssues: [], warnings: [] };
 
-// ─── LinkedIn ─────────────────────────────────────────────────────────────────
+// ─── shared: humble-brag slop ─────────────────────────────────────────────────
+// LinkedIn, X, and Facebook all share these over-announce phrases.
 
-// Extracts text up to the first sentence-ending punctuation or newline
+const HUMBLE_BRAG: Array<{ re: RegExp; label: string }> = [
+  { re: new RegExp(`\\bI${AP}?m\\s+excited\\s+to\\s+announce\\b`, "i"), label: '"I\'m excited to announce"' },
+  { re: /\bI\s+am\s+excited\s+to\s+announce\b/i,                        label: '"I\'m excited to announce"' },
+  { re: /\bthrilled\s+to\s+share\b/i,                                    label: '"Thrilled to share"'        },
+  { re: /\bhonored\s+to\s+(?:be|share|announce)\b/i,                     label: '"Honored to be/share"'     },
+  { re: /\bhumbled\s+to\b/i,                                              label: '"Humbled to"'              },
+];
+
+// ─── shared: credibility regexes for text-first hook platforms ────────────────
+
+// Tight credibility: role title, dollar figure, specific number, ranking
+const TH_CRED_RE =
+  /\b(?:\$[\d,.]+[kKmMbB]?|\d[\d,.]*\s*[kKmMbB](?:\+)?\s*(?:ARR|MRR|revenue|sales|clients?|users?|followers?|subscribers?|students?)?|ceo|cto|coo|founder|co[- ]founder|director|vp\s+of|head\s+of|author\s+of|ranked|#\s*\d|award[-\s]winning|bestsell|Ph\.?D|M\.?B\.?A|Dr\.)\b/i;
+
+// Attribution verb: "[Named person] says/argues/warns..."
+const TH_ATTR_RE =
+  /\b(?:says?|said|claims?|claimed|argues?|argued|warns?|warned|reveals?|revealed|admits?|admitted|announces?|announced|confirms?|confirmed|told|tells?|called\s+out|calls?\s+out)\b/i;
+
+// Sentence-start words that are NOT proper nouns (exclude from company-subject check)
+const TH_NON_NAME_START =
+  /^(?:The|A|An|This|That|These|Those|It|They|We|You|He|She|I|Nobody|Nothing|Something|Everything|Everyone|Someone|Anyone|Each|Every|Recently|Today|Yesterday|Last|Next|My|Your|Our|Their|His|Her|Its|When|Where|What|How|Why|If|But|And|Or|So|Yet|Because|Although|While|After|Before|During|Since|Unless|Until|Whether|Meanwhile|Finally|Then|Now|Here|There|Not|Just|Still|Also|Even|Only|Both|Either|Neither|Many|Most|Some|Few|All|Any|No)\b/;
+
+// "Apple is paying..." / "Google has acquired..." -- named brand as subject IS the credential
+const TH_COMPANY_SUBJECT_RE =
+  /^[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{1,})?\s+(?:is|are|was|were|has|have|had|will|just|recently|now)\b/;
+
+// First sentence up to punctuation or newline
 function firstSentence(text: string): string {
   return text.match(/^[^.!?\n]*/)?.[0] ?? text;
 }
 
-// Tighter than the base credibility check — requires role title, $ figure, or specific number
-const LI_CRED_RE =
-  /\b(?:\$[\d,.]+[kKmMbB]?|\d[\d,.]*\s*[kKmMbB](?:\+)?\s*(?:ARR|MRR|revenue|sales|clients?|users?|followers?|subscribers?|students?)?|ceo|cto|coo|founder|co[- ]founder|director|vp\s+of|head\s+of|author\s+of|ranked|#\s*\d|award[-\s]winning|bestsell|Ph\.?D|M\.?B\.?A|Dr\.)\b/i;
+// Shared hook analysis for LinkedIn, X, and Facebook.
+// All three are text-first: the hook leads before any visual and often has a "see more" cutoff.
+function analyzeTextHook(
+  text:     string,
+  platform: string, // used as prefix in issue strings, e.g. "LinkedIn", "X", "Facebook"
+): { matches: Match[]; platformHookIssues: string[] } {
+  const matches:            Match[]  = [];
+  const platformHookIssues: string[] = [];
 
-// Named public figure + attribution verb = credibility (e.g. "Seth Rogen says…")
-const LI_ATTR_RE =
-  /\b(?:says?|said|claims?|claimed|argues?|argued|warns?|warned|reveals?|revealed|admits?|admitted|announces?|announced|confirms?|confirmed|told|tells?|called\s+out|calls?\s+out)\b/i;
+  // Humble-brag slop
+  for (const item of HUMBLE_BRAG) {
+    matches.push(...toMatches(findAll(text, item.re), "slop", item.label));
+  }
+
+  // Proper noun in first sentence
+  if (!hasProperNoun(firstSentence(text))) {
+    platformHookIssues.push(`${platform}: no proper noun in first sentence`);
+  }
+
+  // Credibility signal in hook region (first two lines)
+  const nl1      = text.indexOf("\n");
+  const nl2      = nl1 === -1 ? -1 : text.indexOf("\n", nl1 + 1);
+  const hookEnd  = nl2 !== -1 ? nl2 : nl1 !== -1 ? nl1 : text.length;
+  const hookText = text.slice(0, hookEnd);
+
+  const hasAttribution   = hasProperNoun(firstSentence(text)) && TH_ATTR_RE.test(hookText);
+  const hasSubjectAction = TH_COMPANY_SUBJECT_RE.test(text) && !TH_NON_NAME_START.test(text);
+
+  if (!TH_CRED_RE.test(hookText) && !hasAttribution && !hasSubjectAction) {
+    platformHookIssues.push(`${platform}: hook lacks role, dollar figure, or specific number`);
+  }
+
+  return { matches, platformHookIssues };
+}
+
+// ─── LinkedIn ─────────────────────────────────────────────────────────────────
 
 function analyzeLinkedIn(text: string): PlatformResult {
-  const matches:            Match[]   = [];
-  const platformHookIssues: string[]  = [];
-  const warnings:           string[]  = [];
+  const warnings: string[] = [];
+  const { matches, platformHookIssues } = analyzeTextHook(text, "LinkedIn");
 
-  // Extra slop — humble-brag announce phrases
-  const ANNOUNCE = [
-    { re: new RegExp(`\\bI${AP}?m\\s+excited\\s+to\\s+announce\\b`, "i"), label: "“I’m excited to announce”" },
-    { re: /\bI\s+am\s+excited\s+to\s+announce\b/i,                        label: "“I’m excited to announce”" },
-    { re: /\bthrilled\s+to\s+share\b/i,                                    label: "“Thrilled to share”"             },
-    { re: /\bhonored\s+to\s+(?:be|share|announce)\b/i,                     label: "“Honored to be/share”"           },
-    { re: /\bhumbled\s+to\b/i,                                              label: "“Humbled to”"                    },
-  ];
-  for (const { re, label } of ANNOUNCE) {
-    matches.push(...toMatches(findAll(text, re), "slop", label));
-  }
-
-  // Proper noun in FIRST SENTENCE (stricter than base rule's first-line check)
-  if (!hasProperNoun(firstSentence(text))) {
-    platformHookIssues.push("LinkedIn: no proper noun in first sentence");
-  }
-
-  // LinkedIn-specific credibility within hook region (first two lines)
-  const nl1 = text.indexOf("\n");
-  const nl2 = nl1 === -1 ? -1 : text.indexOf("\n", nl1 + 1);
-  const hookEnd = nl2 !== -1 ? nl2 : nl1 !== -1 ? nl1 : text.length;
-  const hookText = text.slice(0, hookEnd);
-  const hasLiAttribution = hasProperNoun(firstSentence(text)) && LI_ATTR_RE.test(hookText);
-
-  // Company/brand as subject: "Apple is paying…", "Google has acquired…"
-  const LI_NON_NAME =
-    /^(?:The|A|An|This|That|These|Those|It|They|We|You|He|She|I|Nobody|Nothing|Something|Everything|Everyone|Someone|Anyone|Each|Every|Recently|Today|Yesterday|Last|Next|My|Your|Our|Their|His|Her|Its|When|Where|What|How|Why|If|But|And|Or|So|Yet|Because|Although|While|After|Before|During|Since|Unless|Until|Whether|Meanwhile|Finally|Then|Now|Here|There|Not|Just|Still|Also|Even|Only|Both|Either|Neither|Many|Most|Some|Few|All|Any|No)\b/;
-  const LI_COMPANY_SUBJECT_RE =
-    /^[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{1,})?\s+(?:is|are|was|were|has|have|had|will|just|recently|now)\b/;
-  const hasSubjectAction =
-    LI_COMPANY_SUBJECT_RE.test(text) && !LI_NON_NAME.test(text);
-
-  if (!LI_CRED_RE.test(hookText) && !hasLiAttribution && !hasSubjectAction) {
-    platformHookIssues.push("LinkedIn: hook lacks role, dollar figure, or specific number");
-  }
-
-  // Warning: wall-of-text (no line breaks at all)
+  // Wall-of-text warning
   if (!text.includes("\n")) {
-    warnings.push("No line breaks — LinkedIn rewards white space");
+    warnings.push("No line breaks -- LinkedIn rewards white space");
   }
 
-  // Warning: hook before "see more" is over 200 chars
+  // Hook before "see more" over 200 chars
   const blankLinePos = text.indexOf("\n\n");
   const hookLength   = blankLinePos !== -1 ? blankLinePos : Math.min(text.length, 400);
   if (hookLength > 200) {
-    warnings.push(`Hook is ~${hookLength} chars — LinkedIn truncates at ~200 before "see more"`);
+    warnings.push(`Hook is ~${hookLength} chars -- LinkedIn truncates at ~200 before "see more"`);
+  }
+
+  return { matches, platformHookIssues, warnings };
+}
+
+// ─── X ────────────────────────────────────────────────────────────────────────
+// Same text-first hook rules as LinkedIn. Character limit is 280.
+
+function analyzeX(text: string): PlatformResult {
+  const warnings: string[] = [];
+  const { matches, platformHookIssues } = analyzeTextHook(text, "X");
+
+  if (text.length > 280) {
+    warnings.push(`Over X's 280-char limit by ${text.length - 280} chars`);
+  } else if (text.length > 240) {
+    warnings.push(`${280 - text.length} chars remaining -- approaching X's 280-char limit`);
+  }
+
+  return { matches, platformHookIssues, warnings };
+}
+
+// ─── Facebook ─────────────────────────────────────────────────────────────────
+// Same text-first hook rules as LinkedIn. "See more" kicks in at ~477 chars.
+
+function analyzeFacebook(text: string): PlatformResult {
+  const warnings: string[] = [];
+  const { matches, platformHookIssues } = analyzeTextHook(text, "Facebook");
+
+  // Wall-of-text warning
+  if (!text.includes("\n")) {
+    warnings.push("No line breaks -- Facebook rewards white space");
+  }
+
+  // Hook before "see more" over 477 chars
+  const blankLinePos = text.indexOf("\n\n");
+  const hookLength   = blankLinePos !== -1 ? blankLinePos : Math.min(text.length, 600);
+  if (hookLength > 477) {
+    warnings.push(`Hook is ~${hookLength} chars -- Facebook shows "See more" at ~477 chars`);
   }
 
   return { matches, platformHookIssues, warnings };
@@ -170,22 +240,18 @@ function analyzeLinkedIn(text: string): PlatformResult {
 const YT_CLICKBAIT_RE =
   /\b(?:you\s+won['']?t\s+believe|this\s+will\s+(?:shock|change\s+everything|blow\s+your\s+mind)|what\s+happens\s+(?:next|when\s+you)|mind[- ]blowing|insane\s+results?)\b/i;
 
-// Curiosity gap: leading interrogative, number opener, or question-mark ending
 const YT_CURIOSITY_RE =
   /^(?:\d+\s|how\s|why\s|what\s|when\s|the\s+(?:secret|truth|real\s+reason|one\s+thing)|i\s+(?:tried|tested|spent|made|built))/i;
 
 function analyzeYouTube(text: string): PlatformResult {
-  const matches:            Match[]   = [];
-  const platformHookIssues: string[]  = [];
-  const warnings:           string[]  = [];
+  const matches:            Match[]  = [];
+  const platformHookIssues: string[] = [];
+  const warnings:           string[] = [];
 
-  // Clickbait non-answers → hard violation
   matches.push(...toMatches(findAll(text, YT_CLICKBAIT_RE), "hard", "Clickbait non-answer"));
 
-  // Combined curiosity-gap / number / named-person check
   const hasCuriosityGap = YT_CURIOSITY_RE.test(text.trim()) || /\?$/.test(text.trim());
   const hasNumber       = /\d/.test(text);
-  // Named person proxy: capital word not at the very start of the string
   const hasNamedPerson  = /(?:\s)[A-Z][a-z]{1,}/.test(text);
 
   if (!hasCuriosityGap && !hasNumber && !hasNamedPerson) {
@@ -204,24 +270,20 @@ const TT_GENERIC_CTA_RE =
   /\b(?:link\s+in\s+(?:bio|profile)|check\s+(?:my|the)\s+(?:bio|profile|page)|follow\s+for\s+more)\b/i;
 
 function analyzeTikTok(text: string): PlatformResult {
-  const matches:            Match[]   = [];
-  const platformHookIssues: string[]  = [];
-  const warnings:           string[]  = [];
+  const matches:            Match[]  = [];
+  const platformHookIssues: string[] = [];
+  const warnings:           string[] = [];
 
   const firstLine = text.split("\n")[0] ?? text;
-
-  // First line should hook, not just describe
   if (TT_DESCRIBES_RE.test(firstLine.trim())) {
-    platformHookIssues.push("TikTok: first line just describes the video — it should hook");
+    platformHookIssues.push("TikTok: first line just describes the video -- it should hook");
   }
 
-  // Generic CTAs as slop
   matches.push(...toMatches(findAll(text, TT_GENERIC_CTA_RE), "slop", "Generic CTA"));
 
-  // Excessive hashtags
   const hashCount = (text.match(/#\w+/g) ?? []).length;
   if (hashCount > 5) {
-    warnings.push(`${hashCount} hashtags — keep to 5 or fewer`);
+    warnings.push(`${hashCount} hashtags -- keep to 5 or fewer`);
   }
 
   return { matches, platformHookIssues, warnings };
@@ -241,6 +303,16 @@ interface CheckDef {
 
 const PLATFORM_CHECKS: Record<Platform, CheckDef[]> = {
   linkedin: [
+    { label: "Proper noun in first sentence",  failKeys: ["proper noun"]              },
+    { label: "Contradiction or tension",        failKeys: ["contradiction"]             },
+    { label: "Role, number, or dollar figure",  failKeys: ["credibility", "lacks role"] },
+  ],
+  x: [
+    { label: "Proper noun in first sentence",  failKeys: ["proper noun"]              },
+    { label: "Contradiction or tension",        failKeys: ["contradiction"]             },
+    { label: "Role, number, or dollar figure",  failKeys: ["credibility", "lacks role"] },
+  ],
+  facebook: [
     { label: "Proper noun in first sentence",  failKeys: ["proper noun"]              },
     { label: "Contradiction or tension",        failKeys: ["contradiction"]             },
     { label: "Role, number, or dollar figure",  failKeys: ["credibility", "lacks role"] },
@@ -281,8 +353,10 @@ export function getPlatformChecklist(
 export function analyzePlatform(text: string, platform: Platform): PlatformResult {
   if (!text.trim()) return EMPTY;
   switch (platform) {
-    case "linkedin": return analyzeLinkedIn(text);
-    case "youtube":  return analyzeYouTube(text);
-    case "tiktok":   return analyzeTikTok(text);
+    case "linkedin":  return analyzeLinkedIn(text);
+    case "x":         return analyzeX(text);
+    case "facebook":  return analyzeFacebook(text);
+    case "youtube":   return analyzeYouTube(text);
+    case "tiktok":    return analyzeTikTok(text);
   }
 }

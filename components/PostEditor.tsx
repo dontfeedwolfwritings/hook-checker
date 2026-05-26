@@ -900,6 +900,9 @@ function DiffView({ before, after }: { before: string; after: string }) {
 
 // ─── platform selector ────────────────────────────────────────────────────────
 
+// Active platforms that can be selected (coming-soon platforms are excluded)
+const ACTIVE_PLATFORMS: Platform[] = ["linkedin", "x", "facebook"];
+
 function PlatformSelector({
   value,
   onChange,
@@ -920,7 +923,7 @@ function PlatformSelector({
       </p>
 
       <div className="mb-3 flex rounded bg-[#0d0d0d] p-0.5">
-        {(Object.keys(PLATFORM_CONFIG) as Platform[]).map((p) => (
+        {ACTIVE_PLATFORMS.map((p) => (
           <button
             key={p}
             onClick={() => onChange(p)}
@@ -947,6 +950,10 @@ function PlatformSelector({
           Over soft limit ({PLATFORM_CONFIG[value].limits.softMax.toLocaleString()} chars)
         </p>
       )}
+
+      <p className="mt-3 font-mono text-[9px] text-[#1e1e1e] tracking-[0.12em]">
+        YouTube &amp; TikTok / Reels — coming soon
+      </p>
     </div>
   );
 }

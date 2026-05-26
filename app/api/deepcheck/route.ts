@@ -92,6 +92,8 @@ function pruneRateStore(): void {
 
 const PLATFORM_LABEL: Record<string, string> = {
   linkedin: "LinkedIn text post",
+  x:        "X (Twitter) post — 280-char text-first format",
+  facebook: "Facebook text post — text leads before any visual",
   youtube:  "YouTube video title",
   tiktok:   "TikTok / Instagram Reels caption",
 };
