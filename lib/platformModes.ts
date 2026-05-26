@@ -177,19 +177,74 @@ function analyzeTextHook(
 }
 
 // ─── LinkedIn ─────────────────────────────────────────────────────────────────
+//
+// LinkedIn's top-performing hooks follow one of two formats before "see more":
+//
+//   3-Line Hook:  Line 1 — the claim / "what"
+//                [blank line — negative space, creates a pause]
+//                Line 3 — the "so what" / twist / consequence
+//                                                    ...more
+//
+//   Single-Line:  One compact statement or quote (≤ 200 chars, no line breaks).
+//                 For vertical video it MUST be 5-8 words — it appears as a
+//                 caption overlay inside the visual on mobile LinkedIn.
+//                                                    ...more
+//
+// A wall of text (multiple lines without blank-line breathing room, or a block
+// over 200 chars) kills the scroll-stop before anyone clicks "see more".
 
 function analyzeLinkedIn(text: string): PlatformResult {
   const warnings: string[] = [];
   const { matches, platformHookIssues } = analyzeTextHook(text, "LinkedIn");
 
-  // Wall-of-text warning
+  // ── Hook format: 3-line or single-line ─────────────────────────────────────
+  const firstBlankLine = text.indexOf("\n\n");
+
+  // Everything visible before the first paragraph break, capped at 300 chars
+  const hookBlock  = firstBlankLine !== -1
+    ? text.slice(0, firstBlankLine)
+    : text.slice(0, Math.min(text.length, 300));
+  const hookLines  = hookBlock.split("\n").filter(l => l.trim());
+
+  // 3-line: exactly one non-empty line before the first blank line (≤ 220 chars in)
+  const is3Line      = firstBlankLine !== -1
+    && firstBlankLine <= 220
+    && hookLines.length === 1;
+
+  // Single-line: one cohesive block with no internal line breaks, ≤ 200 chars
+  const isSingleLine = !hookBlock.includes("\n") && hookBlock.length <= 200;
+
+  if (!is3Line && !isSingleLine) {
+    platformHookIssues.push("LinkedIn: hook format");
+
+    if (hookBlock.includes("\n") && firstBlankLine === -1) {
+      // Multiple line breaks but no blank-line paragraph gap
+      warnings.push(
+        'Hook spans multiple lines without a blank-line gap -- ' +
+        'try: one line (the claim) + blank line + one line (the "so what")'
+      );
+    } else if (firstBlankLine !== -1 && hookLines.length > 1) {
+      // Blank line exists but too many lines crammed before it
+      warnings.push(
+        'Too many lines before the first blank -- ' +
+        'trim to: one statement + blank line + one "so what"'
+      );
+    } else if (hookBlock.length > 200) {
+      // Long unbroken block
+      warnings.push(
+        'Hook block is too long before "see more" -- ' +
+        'try a single punchy line, or the 3-line format: claim + blank + so what'
+      );
+    }
+  }
+
+  // ── Wall-of-text warning ────────────────────────────────────────────────────
   if (!text.includes("\n")) {
     warnings.push("No line breaks -- LinkedIn rewards white space");
   }
 
-  // Hook before "see more" over 200 chars
-  const blankLinePos = text.indexOf("\n\n");
-  const hookLength   = blankLinePos !== -1 ? blankLinePos : Math.min(text.length, 400);
+  // ── Hook length warning ─────────────────────────────────────────────────────
+  const hookLength = firstBlankLine !== -1 ? firstBlankLine : Math.min(text.length, 400);
   if (hookLength > 200) {
     warnings.push(`Hook is ~${hookLength} chars -- LinkedIn truncates at ~200 before "see more"`);
   }
@@ -306,6 +361,7 @@ const PLATFORM_CHECKS: Record<Platform, CheckDef[]> = {
     { label: "Proper noun in first sentence",  failKeys: ["proper noun"]              },
     { label: "Contradiction or tension",        failKeys: ["contradiction"]             },
     { label: "Role, number, or dollar figure",  failKeys: ["credibility", "lacks role"] },
+    { label: "3-line or single-line hook",      failKeys: ["hook format"]               },
   ],
   x: [
     { label: "Proper noun in first sentence",  failKeys: ["proper noun"]              },

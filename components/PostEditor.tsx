@@ -702,6 +702,10 @@ const HOOK_HINTS: Record<string, string> = {
   "Credibility signal present":     "Add proof: a metric, a named role, or a measurable result.",
   "First line as standalone hook":  "Lead with the surprising claim, not 'Check out my video…'",
   "Named person or brand present":  "Drop a specific name — person, brand, or character.",
+  "3-line or single-line hook":
+    "3-Line: one claim + blank line + one \"so what\" before see more. " +
+    "Single-line: one sharp statement or quote (<=200 chars). " +
+    "Vertical video: 5-8 words only — it becomes the caption overlay on mobile.",
 };
 
 function HookChecklist({ items }: { items: CheckItem[] }) {
