@@ -1,4 +1,4 @@
-// Apostrophe variants: straight, left-curly, right-curly
+﻿// Apostrophe variants: straight, left-curly, right-curly
 const AP = "['‘’]";
 
 export interface Match {
@@ -15,7 +15,7 @@ export interface AnalysisResult {
   hookIssues: string[];
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// --- helpers -----------------------------------------------------------------
 
 function findAll(
   text: string,
@@ -40,7 +40,7 @@ function toMatches(
   return hits.map((h) => ({ ...h, type, label }));
 }
 
-// ─── hard violation rules ─────────────────────────────────────────────────────
+// --- hard violation rules -----------------------------------------------------
 
 const hardRules: Array<{
   label: string;
@@ -48,7 +48,7 @@ const hardRules: Array<{
 }> = [
   {
     label: "Em dash",
-    find: (t) => findAll(t, /—/g),
+    find: (t) => findAll(t, /--/g),
   },
   {
     label: "Spot on",
@@ -79,7 +79,7 @@ const hardRules: Array<{
       ),
   },
   {
-    // "not just X, it's Y"
+    // "not just X, it’s Y"
     label: "Not just X, it’s Y",
     find: (t) =>
       findAll(
@@ -90,9 +90,19 @@ const hardRules: Array<{
         )
       ),
   },
+  {
+    // "No family. No calls. Just silence." -- AI’s literary alternative to "It’s not X, it’s Y"
+    // Also catches comma-separated: "Not sensory, not real, just ... there."
+    label: "No X. No Y. Just Z. (AI tricolon)",
+    find: (t) =>
+      findAll(
+        t,
+        /\bno\s+[^.,!?\n]{2,50}[.,!?]\s*no\s+[^.,!?\n]{2,50}[.,!?]\s*just\b/i
+      ),
+  },
 ];
 
-// ─── slop word rules ──────────────────────────────────────────────────────────
+// --- slop word rules ----------------------------------------------------------
 
 function findLeverageVerb(
   text: string
@@ -104,7 +114,7 @@ function findLeverageVerb(
     results.push(h);
   }
 
-  // bare "leverage" in clear verb context — capture the word itself, not the prefix
+  // bare "leverage" in clear verb context -- capture the word itself, not the prefix
   const contextRe = new RegExp(
     `\\b(?:to|can|will|should|could|would|must|might|we|you|I|they|he|she|it|also|and|or)\\s+(leverage)\\b`,
     "gi"
@@ -225,12 +235,86 @@ const slopRules: Array<{
       findAll(t, /\bthe\s+(?:lazy|cynics|skeptics|doubters)\b/i),
   },
   {
-    label: "“Quietly” used more than once",
+    label: '"Quietly" used more than once',
     find: findRepeatedQuietly,
+  },
+
+  // -- New rules from Sam Kriss / NYT AI-writing analysis ---------------------
+
+  {
+    // "a liminal day", "this liminal space" -- AI's favourite vagueness word
+    label: "Liminal",
+    find: (t) => findAll(t, /\bliminal\b/i),
+  },
+  {
+    // "woven into your daily rhythm", "woven together by shared values"
+    label: "Woven into / woven together",
+    find: (t) => findAll(t, /\bwov(?:en|ing)\s+(?:into|through|together)\b/i),
+  },
+  {
+    // "this underscores the importance of" -- AI academic verb
+    label: "Underscore (verb)",
+    find: (t) =>
+      findAll(
+        t,
+        /\bunderscor(?:es|ed|ing)\s+(?:the|a|an|how|why|what|that|this|our|its|their|your)\b/i
+      ),
+  },
+  {
+    // "And honestly?" / "Honestly?" as a mid-sentence AI self-interruption tic
+    label: '"And honestly?" -- AI self-interruption',
+    find: (t) => findAll(t, /\band\s+honestly\?/i),
+  },
+  {
+    // "the quiet hum", "soft hum of conversation" -- AI sensory overfitting to abstract settings
+    label: "Quiet / soft hum",
+    find: (t) => findAll(t, /\b(?:quiet|soft|gentle|distant)\s+hum\b/i),
+  },
+  {
+    // "deeply human", "deeply meaningful", "deeply personal" -- AI intensifier stack
+    label: "Deeply [human/meaningful/personal]",
+    find: (t) =>
+      findAll(
+        t,
+        /\bdeeply\s+(?:human|meaningful|personal|rooted|important|moving|transformative)\b/i
+      ),
+  },
+  {
+    // "meaningful connections", "meaningful work", "meaningful impact" -- corporate AI speak
+    label: "Meaningful [connection/impact/work]",
+    find: (t) =>
+      findAll(
+        t,
+        /\bmeaningful\s+(?:connect(?:ion|ions)|work|impact|change|relationship|journey|experience|conversation|dialogue)\b/i
+      ),
+  },
+  {
+    // "a groundswell of support" -- AI dramatic intensifier, rarely used by real writers
+    label: "Groundswell",
+    find: (t) => findAll(t, /\bgroundswell\b/i),
+  },
+  {
+    // "showcase how", "showcases the power of" -- AI academic/PR verb
+    label: "Showcase (verb)",
+    find: (t) =>
+      findAll(
+        t,
+        /\bshowcas(?:e|es|ed|ing)\s+(?:how|the|their|our|your|its|what|why|that|this|a|an)\b/i
+      ),
+  },
+  {
+    // "meticulous planning", "meticulous attention" -- AI precision-signalling word
+    label: "Meticulous",
+    find: (t) => findAll(t, /\bmeticulous(?:ly)?\b/i),
+  },
+  {
+    // "echoes of", "in the echoes" -- AI ghost/echo obsession
+    label: "Echoes of",
+    find: (t) => findAll(t, /\bechoes?\s+of\b/i),
   },
 ];
 
-// ─── hook quality check ───────────────────────────────────────────────────────
+// --- hook quality check -------------------------------------------------------
 
 function getLineInfo(text: string) {
   const nl1 = text.indexOf("\n");
@@ -247,7 +331,7 @@ function getLineInfo(text: string) {
 
   // Tension region: 4 newline segments from the start, capped at 400 chars.
   // This captures short rebuttal lines that follow a blank paragraph separator
-  // e.g. "Claim.\n\nWrong target." — "Wrong target." is on line 3.
+  // e.g. "Claim.\n\nWrong target." -- "Wrong target." is on line 3.
   let tensionEnd = twoLinesEnd;
   let pos = twoLinesEnd;
   for (let i = 0; i < 2 && pos < text.length; i++) {
@@ -267,7 +351,7 @@ function hasProperNoun(line: string): boolean {
   let m: RegExpExecArray | null;
   while ((m = re.exec(line)) !== null) {
     const before = line.slice(0, m.index).trimEnd();
-    // Sentence-start capitals are expected — skip them
+    // Sentence-start capitals are expected -- skip them
     if (before === "" || /[.!?]$/.test(before)) continue;
     if (m[1] === "I") continue; // first-person pronoun is not a proper noun
     return true;
@@ -283,7 +367,7 @@ const CONTRADICTION_RE =
 const SHORT_REBUTTAL_RE =
   /(?:^|[.!?]\s{0,3}|\n)(?:Wrong|False|Not true|Not quite|Nope|Actually|Incorrect|No\.|Bullshit)\b/im;
 
-// Confrontation verbs: "called out", "exposed", "challenged", "blasted" etc. — implied tension through conflict
+// Confrontation verbs: "called out", "exposed", "challenged", "blasted" etc. -- implied tension through conflict
 const CONFRONTATION_RE =
   /\b(?:call(?:s|ed|ing)?\s+out|push(?:es|ed|ing)?\s+back|challeng(?:es|ed|ing)|expos(?:es|ed|ing)|accus(?:es|ed|ing)|blast(?:s|ed|ing)|slam(?:s|med|ming)|tak(?:es|en|ing)?\s+aim|debunk(?:s|ed|ing)|defi(?:es|ed|ant|ance)|fought?\s+back|fight(?:s|ing)?\s+back|warn(?:s|ed|ing)\s+(?:about|against|of)|condemn(?:s|ed|ing)|reject(?:s|ed|ing)|to\s+prove)\b/i;
 
@@ -292,7 +376,7 @@ const CREDIBILITY_RE =
   /\b(?:\d[\d,.]*\s*[kKmM]\+?\s*(?:followers?|subscribers?|connections?|views?)|#\s*1\b|ranked\s+(?:#\s*)?\d|award[-\s]winning|bestsell|certified|licensed|Ph\.?D|M\.?B\.?A|Dr\.|professor|author\s+of|founded|founder|ceo|cto|coo|vp\s+of|head\s+of|director\s+of|record[- ](?:breaking|setting))\b/i;
 
 // Attribution pattern: "[Named person] says/claims/argues/warns X"
-// The named public figure IS the credibility — no title or dollar figure needed.
+// The named public figure IS the credibility -- no title or dollar figure needed.
 const ATTRIBUTION_RE =
   /\b(?:says?|said|claims?|claimed|argues?|argued|warns?|warned|reveals?|revealed|admits?|admitted|announces?|announced|confirms?|confirmed|told|tells?|called\s+out|calls?\s+out)\b/i;
 
@@ -320,7 +404,7 @@ function runHookChecks(text: string): {
   ) {
     flag(0, twoLinesEnd, "Weak hook: no contradiction or tension signal");
   }
-  // "Apple is paying…", "Google has acquired…" — named entity as subject IS the credential
+  // "Apple is paying…", "Google has acquired…" -- named entity as subject IS the credential
   const NON_NAME_START =
     /^(?:The|A|An|This|That|These|Those|It|They|We|You|He|She|I|Nobody|Nothing|Something|Everything|Everyone|Someone|Anyone|Each|Every|Recently|Today|Yesterday|Last|Next|My|Your|Our|Their|His|Her|Its|When|Where|What|How|Why|If|But|And|Or|So|Yet|Because|Although|While|After|Before|During|Since|Unless|Until|Whether|Meanwhile|Finally|Then|Now|Here|There|Not|Just|Still|Also|Even|Only|Both|Either|Neither|Many|Most|Some|Few|All|Any|No)\b/;
   const COMPANY_SUBJECT_RE =
@@ -336,7 +420,7 @@ function runHookChecks(text: string): {
   return { hookMatches, hookIssues };
 }
 
-// ─── deduplication ────────────────────────────────────────────────────────────
+// --- deduplication ------------------------------------------------------------
 
 const TYPE_PRIORITY: Record<Match["type"], number> = {
   hard: 0,
@@ -374,7 +458,7 @@ function deduplicateMatches(matches: Match[]): Match[] {
   });
 }
 
-// ─── public API ───────────────────────────────────────────────────────────────
+// --- public API ---------------------------------------------------------------
 
 export function analyzeText(text: string): AnalysisResult {
   const raw: Match[] = [];
