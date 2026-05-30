@@ -48,7 +48,7 @@ const hardRules: Array<{
 }> = [
   {
     label: "Em dash",
-    find: (t) => findAll(t, /--/g),
+    find: (t) => findAll(t, /—/g),
   },
   {
     label: "Spot on",
