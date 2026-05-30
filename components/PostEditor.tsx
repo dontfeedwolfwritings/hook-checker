@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import { analyzeText, type Match } from "@/lib/rules";
 import {
@@ -12,6 +13,7 @@ import {
   type CheckItem,
   type Platform,
 } from "@/lib/platformModes";
+import { LATEST_CHANGELOG_DATE } from "@/data/changelog";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -1240,6 +1242,41 @@ function DeepCheckSection({
   );
 }
 
+// ─── changelog badge ──────────────────────────────────────────────────────────
+
+const CHANGELOG_SEEN_KEY = "hc_changelog_seen";
+
+function ChangelogBadge() {
+  const [hasNew, setHasNew] = useState(false);
+
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem(CHANGELOG_SEEN_KEY);
+      setHasNew(seen !== LATEST_CHANGELOG_DATE);
+    } catch { /* storage unavailable — no badge */ }
+  }, []);
+
+  function markSeen() {
+    try {
+      localStorage.setItem(CHANGELOG_SEEN_KEY, LATEST_CHANGELOG_DATE);
+    } catch { /* silent */ }
+    setHasNew(false);
+  }
+
+  return (
+    <Link
+      href="/changelog"
+      onClick={markSeen}
+      className="relative flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[#2a2a2a] transition-colors hover:text-[#444]"
+    >
+      What&apos;s new
+      {hasNew && (
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
+      )}
+    </Link>
+  );
+}
+
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export default function PostEditor() {
@@ -1446,13 +1483,14 @@ export default function PostEditor() {
             )}
           </div>
         )}
-        <div className="border-t border-[#181818] px-5 py-3">
+        <div className="flex items-center justify-between border-t border-[#181818] px-5 py-3">
           <a
             href="https://cleancopy.io"
-            className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#2a2a2a] hover:text-[#444] transition-colors"
+            className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#2a2a2a] transition-colors hover:text-[#444]"
           >
             cleancopy.io
           </a>
+          <ChangelogBadge />
         </div>
       </div>
 
