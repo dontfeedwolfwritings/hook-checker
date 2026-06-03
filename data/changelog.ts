@@ -21,7 +21,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date:    "2026-06-03",
     summary: "Negation-reframe detection greatly expanded",
     items: [
-      { type: "new",      text: "\"No longer\" reframe: catches \"Creators are no longer amplifiers — they're driving real commerce\" and similar" },
+      { type: "new",      text: "\"No longer\" reframe: catches \"X is no longer A — they're B now\" and similar constructions" },
       { type: "improved", text: "Em dash (—) added as a valid separator across all negation-reframe rules" },
       { type: "improved", text: "Expanded forms now caught: \"is not / are not / was not / were not\" alongside contractions" },
       { type: "improved", text: "Past-tense resolution: \"it was / they were\" now recognised alongside present-tense \"it's / they're\"" },
