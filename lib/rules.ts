@@ -1,5 +1,12 @@
 ﻿// Apostrophe variants: straight, left-curly, right-curly
-const AP = "['‘’]";
+const AP = "[‘’’]";
+
+// ── X-is-not-Y family helpers ─────────────────────────────────────────────────
+// Resolution pronoun: it’s / they’re / that’s
+const NOT_RES = `(?:it|they|that)${AP}?(?:s|re)`;
+// Separator: comma or period + optional spaces/tabs + up to 2 newlines
+// Handles:  ", it’s"  |  ". It’s"  |  ".\nIt’s"  |  ".\n\nThey’re"
+const NOT_SEP = `[,.][ \\t]*\\n{0,2}[ \\t]*`;
 
 export interface Match {
   start: number;
@@ -55,40 +62,55 @@ const hardRules: Array<{
     find: (t) => findAll(t, /\bspot\s+on\b/i),
   },
   {
-    // "it's not a post, it's a revolution"
+    // "it’s not a post, it’s a revolution"
+    // Now also catches period-separated and paragraph-break variants:
+    //   "It’s not about scale. It’s about conviction."
+    //   "It’s not strategy.\n\nIt’s survival."
     label: "It’s not X, it’s Y",
-    find: (t) =>
-      findAll(
-        t,
-        new RegExp(
-          `it${AP}?s\\s+not\\s+.{1,120}?,\\s*it${AP}?s\\s`,
-          "i"
-        )
-      ),
+    find: (t) => findAll(t, new RegExp(
+      `it${AP}?s\\s+not\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
+      "i"
+    )),
   },
   {
-    // "this isn't X, it's Y"
-    label: "This isn’t X, it’s Y",
-    find: (t) =>
-      findAll(
-        t,
-        new RegExp(
-          `this\\s+isn${AP}?t\\s+.{1,120}?,\\s*it${AP}?s\\s`,
-          "i"
-        )
-      ),
+    // "this/that isn’t X. It’s/They’re/That’s Y."
+    // Catches comma, period, or paragraph-break between the two clauses:
+    //   "This isn’t a Hollywood story. It’s a business model story."
+    //   "That isn’t failure, that’s data."
+    label: "This isn’t X. It’s Y.",
+    find: (t) => findAll(t, new RegExp(
+      `(?:this|that)\\s+isn${AP}?t\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
+      "i"
+    )),
   },
   {
-    // "not just X, it’s Y"
+    // "these/those/they/we aren’t X. They’re Y." — plural subject variant
+    //   "These aren’t creative limitations. They’re the three pillars..."
+    //   "They aren’t competitors. They’re collaborators."
+    label: "Aren’t X. They’re Y.",
+    find: (t) => findAll(t, new RegExp(
+      `(?:these|those|they|we)\\s+aren${AP}?t\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
+      "i"
+    )),
+  },
+  {
+    // General paragraph-break reframe: any subject + isn’t/aren’t + blank line + resolution
+    // Catches cases where the subject is a proper noun, not a demonstrative:
+    //   "Visa isn’t talking about payments.\n\nThey’re talking about participation."
+    //   "The companies that win aren’t the ones that monetize.\n\nThey’re the ones..."
+    label: "Isn’t X. They’re Y.",
+    find: (t) => findAll(t, new RegExp(
+      `(?:isn${AP}?t|aren${AP}?t)\\s+[^.!?\\n]{1,120}?[.!?][ \\t]*\\n\\n[ \\t]*${NOT_RES}\\s`,
+      "i"
+    )),
+  },
+  {
+    // "not just X, it’s Y" — also catches period-separated
     label: "Not just X, it’s Y",
-    find: (t) =>
-      findAll(
-        t,
-        new RegExp(
-          `not\\s+just\\s+.{1,120}?,\\s*it${AP}?s\\s`,
-          "i"
-        )
-      ),
+    find: (t) => findAll(t, new RegExp(
+      `not\\s+just\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
+      "i"
+    )),
   },
   {
     // "No family. No calls. Just silence." -- AI’s literary alternative to "It’s not X, it’s Y"

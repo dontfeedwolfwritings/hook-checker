@@ -613,9 +613,14 @@ function ScoreBreakdown({
 // ─── flagged phrases ──────────────────────────────────────────────────────────
 
 const VIOLATION_FIX: Record<string, string> = {
-  "Em dash":          "Replace — with a period or colon.",
-  "Spot on":          "Replace with 'exactly right' or just cut it.",
-  "it's not X it's Y": "State your point directly without the construction.",
+  "Em dash":               "Replace — with a period or colon.",
+  "Spot on":               "Replace with 'exactly right' or just cut it.",
+  // X-is-not-Y family — all share the same fix advice
+  "It's not X, it's Y":   "State the point directly. Drop the negation setup.",
+  "This isn't X. It's Y.": "Cut the denial. Open with the real claim instead.",
+  "Aren't X. They're Y.":  "Cut the denial. Open with the real claim instead.",
+  "Isn't X. They're Y.":   "Cut the denial. Open with the real claim instead.",
+  "Not just X, it's Y":    "Lead with what it actually is — skip the 'not just'.",
 };
 
 const SLOP_FIX_DEFAULT = "Replace with something specific to your actual point.";
