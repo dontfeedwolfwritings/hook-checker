@@ -2,11 +2,11 @@
 const AP = "[‘’’]";
 
 // ── X-is-not-Y family helpers ─────────────────────────────────────────────────
-// Resolution pronoun: it’s / they’re / that’s
-const NOT_RES = `(?:it|they|that)${AP}?(?:s|re)`;
-// Separator: comma or period + optional spaces/tabs + up to 2 newlines
-// Handles:  ", it’s"  |  ". It’s"  |  ".\nIt’s"  |  ".\n\nThey’re"
-const NOT_SEP = `[,.][ \\t]*\\n{0,2}[ \\t]*`;
+// Resolution: present (it’s / they’re / that’s) + past (it was / they were / that was)
+const NOT_RES = `(?:it|they|that)(?:${AP}?(?:s|re)|\\s+(?:was|were))`;
+// Separator: comma, period, or em dash + optional spaces/tabs + up to 2 newlines
+// Handles:  ", it’s"  |  ". It’s"  |  "— they’re"  |  ".\n\nThey’re"
+const NOT_SEP = `[,.—][ \\t]*\\n{0,2}[ \\t]*`;
 
 export interface Match {
   start: number;
@@ -73,39 +73,50 @@ const hardRules: Array<{
     )),
   },
   {
-    // "this/that isn’t X. It’s/They’re/That’s Y."
-    // Catches comma, period, or paragraph-break between the two clauses:
-    //   "This isn’t a Hollywood story. It’s a business model story."
-    //   "That isn’t failure, that’s data."
+    // "this/that isn’t X. It’s/They’re Y."
+    // Also catches expanded forms: "is not", "was not", "wasn’t"
+    //   "This isn’t a Hollywood story. It’s a business model story."  (contraction)
+    //   "This is not a side project. It’s a company."                (expanded)
+    //   "That was not a mistake. It was a lesson."                   (past tense)
     label: "This isn’t X. It’s Y.",
     find: (t) => findAll(t, new RegExp(
-      `(?:this|that)\\s+isn${AP}?t\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
+      `(?:this|that|it)\\s+(?:isn${AP}?t|is\\s+not|wasn${AP}?t|was\\s+not)\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
       "i"
     )),
   },
   {
-    // "these/those/they/we aren’t X. They’re Y." — plural subject variant
+    // "these/they aren’t X. They’re Y." — plural subject variant
+    // Also catches expanded forms: "are not", "were not", "weren’t"
     //   "These aren’t creative limitations. They’re the three pillars..."
-    //   "They aren’t competitors. They’re collaborators."
+    //   "They are not just influencers. They’re small businesses."
+    //   "These are not vanity metrics. They’re revenue signals."
     label: "Aren’t X. They’re Y.",
     find: (t) => findAll(t, new RegExp(
-      `(?:these|those|they|we)\\s+aren${AP}?t\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
+      `(?:these|those|they|we)\\s+(?:aren${AP}?t|are\\s+not|weren${AP}?t|were\\s+not)\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,
       "i"
     )),
   },
   {
-    // General paragraph-break reframe: any subject + isn’t/aren’t + blank line + resolution
-    // Catches cases where the subject is a proper noun, not a demonstrative:
+    // General paragraph-break reframe: any subject + isn’t/aren’t/is not/are not + blank line
     //   "Visa isn’t talking about payments.\n\nThey’re talking about participation."
-    //   "The companies that win aren’t the ones that monetize.\n\nThey’re the ones..."
+    //   "The company is not a startup anymore.\n\nIt’s an institution."
     label: "Isn’t X. They’re Y.",
     find: (t) => findAll(t, new RegExp(
-      `(?:isn${AP}?t|aren${AP}?t)\\s+[^.!?\\n]{1,120}?[.!?][ \\t]*\\n\\n[ \\t]*${NOT_RES}\\s`,
+      `(?:isn${AP}?t|aren${AP}?t|is\\s+not|are\\s+not)\\s+[^.!?\\n]{1,120}?[.!?][ \\t]*\\n\\n[ \\t]*${NOT_RES}\\s`,
       "i"
     )),
   },
   {
-    // "not just X, it’s Y" — also catches period-separated
+    // "Creators are no longer amplifiers — they’re driving real commerce"
+    // Catches em dash, comma, or period separator; also past tense "was no longer"
+    label: "No longer X. They’re Y.",
+    find: (t) => findAll(t, new RegExp(
+      `(?:is|are|was|were)\\s+no\\s+longer\\s+[^.!?\\n]{1,100}?${NOT_SEP}${NOT_RES}\\s`,
+      "i"
+    )),
+  },
+  {
+    // "not just X, it’s Y" — also catches period-separated and em dash
     label: "Not just X, it’s Y",
     find: (t) => findAll(t, new RegExp(
       `not\\s+just\\s+[^.!?\\n]{1,120}?${NOT_SEP}${NOT_RES}\\s`,

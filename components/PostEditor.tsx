@@ -621,6 +621,7 @@ const VIOLATION_FIX: Record<string, string> = {
   "Aren't X. They're Y.":  "Cut the denial. Open with the real claim instead.",
   "Isn't X. They're Y.":   "Cut the denial. Open with the real claim instead.",
   "Not just X, it's Y":    "Lead with what it actually is — skip the 'not just'.",
+  "No longer X. They're Y.": "State what it is now directly — cut the 'no longer' setup.",
 };
 
 const SLOP_FIX_DEFAULT = "Replace with something specific to your actual point.";
