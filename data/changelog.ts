@@ -17,6 +17,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.5",
+    date:    "2026-06-03",
+    summary: "Smarter negation detection, changelog, LinkedIn contact",
+    items: [
+      { type: "improved", text: "Negation-reframe detection now catches period-separated and paragraph-break variants: \"This isn't X. It's Y.\", \"These aren't X. They're Y.\", and the Visa-style paragraph reframe" },
+      { type: "new",      text: "Four distinct rules cover the full isn't/aren't family — comma, period, single newline, or blank-line separation" },
+      { type: "new",      text: "Changelog page (/changelog) — versioned release notes with fix/new/improved tags" },
+      { type: "new",      text: "What's new badge on the main screen — green dot appears when there are updates you haven't seen" },
+      { type: "new",      text: "Built by card with LinkedIn follow link — reach out on LinkedIn with questions or feedback" },
+    ],
+  },
+  {
     version: "0.4",
     date:    "2026-05-30",
     summary: "Em dash fix, X & Facebook, expanded slop rules",
